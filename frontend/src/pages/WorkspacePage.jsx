@@ -609,8 +609,7 @@ export function WorkspacePage() {
     setTransactionSearch('')
     setActiveModule('dashboard')
     setTrusteeOverride(false)
-    navigate(MODULE_ROUTE_MAP.dashboard, { replace: true })
-  }, [navigate])
+  }, [])
 
   const fetchBootstrapData = useCallback(async (token, loginUser = null) => {
     setBootstrapping(true)
@@ -1065,6 +1064,7 @@ export function WorkspacePage() {
     }
     clearSession()
     setNotice({ type: '', text: '' })
+    navigate('/login', { replace: true })
   }
 
   function resetFamilyForm() {
