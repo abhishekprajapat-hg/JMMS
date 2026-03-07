@@ -382,7 +382,7 @@ export function PaymentsModule({
               <>
                 <p className="hint">UPI Link: {latestInstructions.upiLink}</p>
                 {latestInstructions.upiQrDataUrl && (
-                  <img src={latestInstructions.upiQrDataUrl} alt="UPI QR" style={{ width: '180px', height: '180px' }} />
+                  <img src={latestInstructions.upiQrDataUrl} alt="UPI QR" className="qr-preview" />
                 )}
               </>
             ) : (

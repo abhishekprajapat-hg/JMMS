@@ -1,14 +1,17 @@
-html,
-body,
-#root {
-  margin: 0;
-  min-height: 100%;
-}
+@import "tailwindcss";
 
-body {
-  min-width: 320px;
-}
+@layer base {
+  html,
+  body,
+  #root {
+    @apply m-0 min-h-full;
+  }
 
-a {
-  color: inherit;
+  body {
+    @apply min-w-[320px];
+  }
+
+  a {
+    @apply text-inherit;
+  }
 }
