@@ -5,9 +5,9 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
 BRANCH="${BRANCH:-main}"
-BACKEND_PORT="${BACKEND_PORT:-4000}"
+BACKEND_PORT="${BACKEND_PORT:-5200}"
 PM2_APP_NAME="${PM2_APP_NAME:-jmms-backend}"
-WEB_ROOT="${WEB_ROOT:-/var/www/jmms/frontend}"
+WEB_ROOT="${WEB_ROOT:-${SCRIPT_DIR}/frontend/dist}"
 SKIP_PULL="${SKIP_PULL:-false}"
 
 need_cmd() {
@@ -18,33 +18,28 @@ need_cmd() {
   fi
 }
 
-run_or_sudo() {
-  if "$@"; then
-    return 0
-  fi
-  if command -v sudo >/dev/null 2>&1; then
-    sudo "$@"
-    return 0
-  fi
-  return 1
-}
-
 need_cmd git
 need_cmd npm
 need_cmd node
 need_cmd pm2
-need_cmd rsync
 
 if [[ ! -d backend || ! -d frontend ]]; then
   echo "Run this script from JMMS project root."
   exit 1
 fi
 
-if [[ "${SKIP_PULL}" != "true" && -d .git ]]; then
-  echo "==> Pulling latest code (${BRANCH})"
+if [[ ! -d .git ]]; then
+  echo "==> One-time git bootstrap"
+  git init
+  git remote add origin "${REPO_URL:-https://github.com/abhishekprajapat-hg/JMMS.git}" 2>/dev/null || true
+fi
+
+if [[ "${SKIP_PULL}" != "true" ]]; then
+  echo "==> Updating code (${BRANCH})"
+  git remote set-url origin "${REPO_URL:-https://github.com/abhishekprajapat-hg/JMMS.git}"
   git fetch origin "${BRANCH}"
-  git checkout "${BRANCH}"
-  git pull --ff-only origin "${BRANCH}"
+  git checkout -f -B "${BRANCH}" "origin/${BRANCH}"
+  git reset --hard "origin/${BRANCH}"
 fi
 
 if [[ ! -f backend/.env ]]; then
@@ -62,10 +57,22 @@ cd ../frontend
 npm ci
 npm run build
 
-echo "==> Publishing frontend build to ${WEB_ROOT}"
-run_or_sudo mkdir -p "${WEB_ROOT}"
-run_or_sudo rsync -a --delete "${SCRIPT_DIR}/frontend/dist/" "${WEB_ROOT}/"
-run_or_sudo chown -R www-data:www-data "${WEB_ROOT}" || true
+if [[ "${WEB_ROOT}" == "${SCRIPT_DIR}/frontend/dist" ]]; then
+  echo "==> Using frontend/dist as web root (no copy needed)"
+else
+  need_cmd rsync
+  echo "==> Publishing frontend build to ${WEB_ROOT}"
+  if mkdir -p "${WEB_ROOT}" 2>/dev/null && rsync -a --delete "${SCRIPT_DIR}/frontend/dist/" "${WEB_ROOT}/"; then
+    true
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo mkdir -p "${WEB_ROOT}"
+    sudo rsync -a --delete "${SCRIPT_DIR}/frontend/dist/" "${WEB_ROOT}/"
+    sudo chown -R www-data:www-data "${WEB_ROOT}" || true
+  else
+    echo "No permission to write ${WEB_ROOT}. Set WEB_ROOT=${SCRIPT_DIR}/frontend/dist or run with sudo access."
+    exit 1
+  fi
+fi
 
 echo "==> Starting/restarting backend with PM2"
 export PM2_APP_NAME BACKEND_PORT JMMS_BACKEND_CWD="${SCRIPT_DIR}/backend"
@@ -81,9 +88,13 @@ fi
 pm2 save
 
 if command -v nginx >/dev/null 2>&1; then
-  echo "==> Reloading nginx"
-  run_or_sudo nginx -t || true
-  run_or_sudo systemctl reload nginx || true
+  if nginx -t >/dev/null 2>&1; then
+    systemctl reload nginx >/dev/null 2>&1 || true
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    echo "==> Reloading nginx"
+    sudo nginx -t || true
+    sudo systemctl reload nginx || true
+  fi
 fi
 
 echo "==> Done"
