@@ -1,0 +1,140 @@
+export const ROLE_CONFIG = {
+  trustee: {
+    label: 'Trustee (Super Admin)',
+    permissions: {
+      viewFinancialTotals: true,
+      viewReports: true,
+      overrideBlocks: true,
+      manageDevotees: true,
+      viewDevoteeDirectory: true,
+      logDonations: true,
+      generateReceipts: true,
+      cancelOrRefund: true,
+      manageInventory: true,
+      viewInventory: true,
+      manageSchedule: true,
+      viewSchedule: true,
+      manageWhatsApp: true,
+      runCron: true,
+      approveSensitiveActions: true,
+      manageSetup: true,
+      importExportData: true,
+      managePayments: true,
+      reconcilePayments: true,
+      accessDevoteePortal: true,
+      manageExpenses: true,
+      viewAccounting: true,
+      manageEvents: true,
+    },
+  },
+  admin: {
+    label: 'Munim / Accountant (Admin)',
+    permissions: {
+      viewFinancialTotals: false,
+      viewReports: true,
+      overrideBlocks: false,
+      manageDevotees: true,
+      viewDevoteeDirectory: true,
+      logDonations: true,
+      generateReceipts: true,
+      cancelOrRefund: true,
+      manageInventory: true,
+      viewInventory: true,
+      manageSchedule: true,
+      viewSchedule: true,
+      manageWhatsApp: true,
+      runCron: true,
+      approveSensitiveActions: false,
+      manageSetup: false,
+      importExportData: true,
+      managePayments: true,
+      reconcilePayments: true,
+      accessDevoteePortal: true,
+      manageExpenses: true,
+      viewAccounting: true,
+      manageEvents: true,
+    },
+  },
+  executive: {
+    label: 'Sevadar / Volunteer (Executive)',
+    permissions: {
+      viewFinancialTotals: false,
+      viewReports: false,
+      overrideBlocks: false,
+      manageDevotees: false,
+      viewDevoteeDirectory: true,
+      logDonations: false,
+      generateReceipts: false,
+      cancelOrRefund: false,
+      manageInventory: false,
+      viewInventory: false,
+      manageSchedule: false,
+      viewSchedule: true,
+      manageWhatsApp: false,
+      runCron: false,
+      approveSensitiveActions: false,
+      manageSetup: false,
+      importExportData: false,
+      managePayments: false,
+      reconcilePayments: false,
+      accessDevoteePortal: true,
+      manageExpenses: false,
+      viewAccounting: false,
+      manageEvents: false,
+    },
+  },
+}
+
+export const TRANSACTION_TYPES = ['Bhent', 'Boli', 'Gupt Daan']
+
+export const FUND_CATEGORIES = [
+  'Mandir Nirman',
+  'Shanti Dhara',
+  'Jiv Daya',
+  'Aahar Daan',
+  'General Fund',
+]
+
+export const PAYMENT_STATUSES = ['Paid', 'Pledged']
+
+export const POOJA_SLOTS = [
+  'Abhishek - Morning',
+  'Shanti Dhara - Evening',
+  'Main Kalash',
+]
+
+export const WHATSAPP_PROVIDERS = [
+  'Mock Gateway',
+  'Meta WhatsApp Cloud API',
+  'Wati',
+  'Interakt',
+]
+
+export const PAYMENT_GATEWAYS = ['Direct UPI (No Commission)', 'Direct Bank Transfer (No Commission)']
+
+export const EXPENSE_CATEGORIES = ['Utilities', 'Maintenance', 'Pooja Samagri', 'Event', 'Salary', 'Misc']
+
+export const EVENT_HALLS = ['Main Sabha Hall', 'Upashray Hall', 'Open Courtyard']
+
+export const MODULES = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'directory', label: 'Devotee Directory' },
+  { id: 'finance', label: 'Finance & Donations' },
+  { id: 'payments', label: 'Online Payments' },
+  { id: 'portal', label: 'Devotee Portal' },
+  { id: 'expenses', label: 'Expense Management' },
+  { id: 'accounting', label: 'Accounting' },
+  { id: 'events', label: 'Events' },
+  { id: 'whatsapp', label: 'WhatsApp Engine' },
+  { id: 'inventory', label: 'Bhandar' },
+  { id: 'scheduler', label: 'Tithi & Pooja Scheduler' },
+]
+
+export const MANDIR_PROFILE = {
+  name: 'Shri Jain Shwetambar Mandir',
+  address: 'Civil Lines, Jaipur, Rajasthan',
+  pan: 'AABTS8023F',
+  reg80G: 'AAATS1234AF20251',
+  trustNumber: 'RJT-TRUST-2088',
+  letterhead: 'Shri Jain Shwetambar Mandir Trust',
+}
