@@ -10,13 +10,16 @@ const {
   buildTopContributors,
 } = require('../services/metricsService')
 const { authorize } = require('../middleware/authorize')
+const { resolveMandirId, scopeDbByMandir } = require('../services/tenantService')
 
 const router = express.Router()
 
 router.get('/metrics', (req, res) => {
   const db = getDb()
+  const mandirId = resolveMandirId(req, db)
+  const scopedDb = scopeDbByMandir(db, mandirId)
   const permissions = getPermissionsForRole(req.user.role)
-  const metrics = computeDashboardMetrics({ db, timezone: env.timezone })
+  const metrics = computeDashboardMetrics({ db: scopedDb, timezone: env.timezone })
 
   res.json({
     role: req.user.role,
@@ -29,7 +32,9 @@ router.get('/metrics', (req, res) => {
 
 router.get('/reports/summary', authorize('viewReports'), (req, res) => {
   const db = getDb()
-  const activeTransactions = db.transactions.filter((transaction) => !transaction.cancelled)
+  const mandirId = resolveMandirId(req, db)
+  const scopedDb = scopeDbByMandir(db, mandirId)
+  const activeTransactions = scopedDb.transactions.filter((transaction) => !transaction.cancelled)
   const paidTransactions = activeTransactions.filter((transaction) => transaction.status === 'Paid')
   const pledgedTransactions = activeTransactions.filter((transaction) => transaction.status === 'Pledged')
 
@@ -40,7 +45,7 @@ router.get('/reports/summary', authorize('viewReports'), (req, res) => {
       pledgedAmount: pledgedTransactions.reduce((sum, transaction) => sum + transaction.amount, 0),
       paidCount: paidTransactions.length,
       pledgedCount: pledgedTransactions.length,
-      cancellationCount: db.cancellationLogs.length,
+      cancellationCount: scopedDb.cancellationLogs.length,
     },
     byFundCategory: buildLedgerByFund(activeTransactions),
   })
@@ -48,7 +53,9 @@ router.get('/reports/summary', authorize('viewReports'), (req, res) => {
 
 router.get('/reports/analytics', authorize('viewReports'), (req, res) => {
   const db = getDb()
-  const activeTransactions = db.transactions.filter((transaction) => !transaction.cancelled)
+  const mandirId = resolveMandirId(req, db)
+  const scopedDb = scopeDbByMandir(db, mandirId)
+  const activeTransactions = scopedDb.transactions.filter((transaction) => !transaction.cancelled)
 
   const ledgerByFund = buildLedgerByFund(activeTransactions)
   const byFundCategory = Object.entries(ledgerByFund).map(([fund, amount]) => ({ fund, amount }))
@@ -67,7 +74,7 @@ router.get('/reports/analytics', authorize('viewReports'), (req, res) => {
     }),
     topContributors: buildTopContributors({
       transactions: activeTransactions,
-      families: db.families,
+      families: scopedDb.families,
       limit: 10,
     }),
   })

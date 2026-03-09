@@ -17,6 +17,8 @@ const { hashPassword } = require('../utils/passwords')
 const { createId } = require('../utils/ids')
 const { badRequest } = require('../utils/http')
 const { verifyReceiptIntegrity } = require('../services/receiptTrustService')
+const { resolveMandirId, getMandirProfile } = require('../services/tenantService')
+const { DEFAULT_MANDIR_ID } = require('../constants/tenant')
 
 const router = express.Router()
 
@@ -29,10 +31,13 @@ function isSystemInitialized(db) {
   )
 }
 
-router.get('/reference', (_req, res) => {
+router.get('/reference', (req, res) => {
   const db = getDb()
+  const mandirId = resolveMandirId(req, db)
   res.json({
-    mandirProfile: db.mandirProfile || MANDIR_PROFILE,
+    mandirId,
+    mandirProfile: getMandirProfile(db, mandirId) || MANDIR_PROFILE,
+    mandirs: req.user?.role === 'super_admin' ? db.mandirs || [] : undefined,
     transactionTypes: TRANSACTION_TYPES,
     fundCategories: FUND_CATEGORIES,
     paymentStatuses: PAYMENT_STATUSES,
@@ -93,6 +98,7 @@ router.post('/setup', async (req, res, next) => {
         passwordHash: hashPassword(trusteePassword),
         role: 'trustee',
         fullName: trusteeFullName,
+        mandirId: DEFAULT_MANDIR_ID,
       },
     ]
 
@@ -104,6 +110,15 @@ router.post('/setup', async (req, res, next) => {
       trustNumber: ensureRequiredString(mandirProfileInput.trustNumber),
       letterhead: ensureRequiredString(mandirProfileInput.letterhead),
     }
+    db.mandirs = [
+      {
+        id: DEFAULT_MANDIR_ID,
+        ...db.mandirProfile,
+        timezone: 'Asia/Kolkata',
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      },
+    ]
 
     db.families = seedFamilies
       .map((family, index) => {
@@ -120,6 +135,7 @@ router.post('/setup', async (req, res, next) => {
           gotra,
           whatsapp,
           address,
+          mandirId: DEFAULT_MANDIR_ID,
         }
       })
       .filter(Boolean)

@@ -5,16 +5,22 @@ const { ensureRequiredString } = require('../utils/validation')
 const { notFound } = require('../utils/http')
 const { APPROVAL_STATUS, finalizeApproval } = require('../services/approvalService')
 const { getPermissionsForRole } = require('../constants/rbac')
+const { resolveMandirId, DEFAULT_MANDIR_ID } = require('../services/tenantService')
 
 const router = express.Router()
+
+function getApprovalMandirId(approval) {
+  return ensureRequiredString(approval?.payload?.mandirId) || DEFAULT_MANDIR_ID
+}
 
 router.get('/', authorizeAny(['approveSensitiveActions', 'cancelOrRefund', 'manageDevotees', 'manageExpenses']), (req, res) => {
   const db = getDb()
   const statusFilter = ensureRequiredString(req.query?.status)
   const typeFilter = ensureRequiredString(req.query?.type)
   const permissions = getPermissionsForRole(req.user.role)
+  const mandirId = resolveMandirId(req, db)
 
-  let approvals = db.approvalRequests
+  let approvals = db.approvalRequests.filter((item) => getApprovalMandirId(item) === mandirId)
   if (statusFilter) {
     approvals = approvals.filter((item) => item.status === statusFilter)
   }
@@ -32,7 +38,10 @@ router.get('/', authorizeAny(['approveSensitiveActions', 'cancelOrRefund', 'mana
 router.post('/:approvalId/approve', authorize('approveSensitiveActions'), async (req, res, next) => {
   try {
     const db = getDb()
-    const approval = db.approvalRequests.find((item) => item.id === req.params.approvalId)
+    const mandirId = resolveMandirId(req, db)
+    const approval = db.approvalRequests.find(
+      (item) => item.id === req.params.approvalId && getApprovalMandirId(item) === mandirId,
+    )
     if (!approval) throw notFound('Approval request not found.')
 
     const { request, effects } = finalizeApproval(db, approval, {
@@ -50,7 +59,10 @@ router.post('/:approvalId/approve', authorize('approveSensitiveActions'), async 
 router.post('/:approvalId/reject', authorize('approveSensitiveActions'), async (req, res, next) => {
   try {
     const db = getDb()
-    const approval = db.approvalRequests.find((item) => item.id === req.params.approvalId)
+    const mandirId = resolveMandirId(req, db)
+    const approval = db.approvalRequests.find(
+      (item) => item.id === req.params.approvalId && getApprovalMandirId(item) === mandirId,
+    )
     if (!approval) throw notFound('Approval request not found.')
 
     const { request } = finalizeApproval(db, approval, {

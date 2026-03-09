@@ -1,4 +1,4 @@
-const TRANSACTION_TYPES = ['Bhent', 'Boli', 'Gupt Daan']
+const TRANSACTION_TYPES = ['Daan', 'Bhent', 'Boli', 'Gupt Daan']
 const FUND_CATEGORIES = ['Mandir Nirman', 'Shanti Dhara', 'Jiv Daya', 'Aahar Daan', 'General Fund']
 const PAYMENT_STATUSES = ['Paid', 'Pledged']
 const POOJA_SLOTS = ['Abhishek - Morning', 'Shanti Dhara - Evening', 'Main Kalash']

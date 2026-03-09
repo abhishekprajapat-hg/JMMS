@@ -1,5 +1,22 @@
 const crypto = require('node:crypto')
 const { hashPassword, isPasswordHash } = require('../utils/passwords')
+const { DEFAULT_MANDIR_ID } = require('../constants/tenant')
+
+const TENANT_COLLECTION_KEYS = [
+  'families',
+  'transactions',
+  'paymentIntents',
+  'expenses',
+  'events',
+  'eventRegistrations',
+  'cancellationLogs',
+  'assets',
+  'assetCheckouts',
+  'poojaBookings',
+  'whatsappLogs',
+  'approvalRequests',
+  'whatsAppRetryQueue',
+]
 
 function ensureArray(value) {
   return Array.isArray(value) ? value : []
@@ -16,6 +33,92 @@ function ensureNumber(value, fallback) {
   return Number.isFinite(value) ? value : fallback
 }
 
+function ensureMandirShape(root) {
+  let changed = false
+  const mandirs = ensureArray(root.mandirs)
+  if (mandirs !== root.mandirs) {
+    root.mandirs = mandirs
+    changed = true
+  }
+
+  if (!root.mandirs.length) {
+    root.mandirs.push({
+      id: DEFAULT_MANDIR_ID,
+      name: root.mandirProfile?.name || 'Default Mandir',
+      address: root.mandirProfile?.address || '',
+      pan: root.mandirProfile?.pan || '',
+      reg80G: root.mandirProfile?.reg80G || '',
+      trustNumber: root.mandirProfile?.trustNumber || '',
+      letterhead: root.mandirProfile?.letterhead || '',
+      timezone: 'Asia/Kolkata',
+      isActive: true,
+      createdAt: new Date().toISOString(),
+    })
+    changed = true
+  }
+
+  for (const mandir of root.mandirs) {
+    if (!mandir || typeof mandir !== 'object') continue
+    if (typeof mandir.id !== 'string' || !mandir.id.trim()) {
+      mandir.id = DEFAULT_MANDIR_ID
+      changed = true
+    }
+    if (typeof mandir.name !== 'string') {
+      mandir.name = ''
+      changed = true
+    }
+    if (typeof mandir.address !== 'string') {
+      mandir.address = ''
+      changed = true
+    }
+    if (typeof mandir.pan !== 'string') {
+      mandir.pan = ''
+      changed = true
+    }
+    if (typeof mandir.reg80G !== 'string') {
+      mandir.reg80G = ''
+      changed = true
+    }
+    if (typeof mandir.trustNumber !== 'string') {
+      mandir.trustNumber = ''
+      changed = true
+    }
+    if (typeof mandir.letterhead !== 'string') {
+      mandir.letterhead = ''
+      changed = true
+    }
+    if (typeof mandir.timezone !== 'string') {
+      mandir.timezone = 'Asia/Kolkata'
+      changed = true
+    }
+    if (typeof mandir.isActive !== 'boolean') {
+      mandir.isActive = true
+      changed = true
+    }
+  }
+
+  return changed
+}
+
+function ensureTenantScopedCollections(root) {
+  let changed = false
+  for (const key of TENANT_COLLECTION_KEYS) {
+    const next = ensureArray(root[key])
+    if (next !== root[key]) {
+      root[key] = next
+      changed = true
+    }
+    for (const item of root[key]) {
+      if (!item || typeof item !== 'object') continue
+      if (typeof item.mandirId !== 'string' || !item.mandirId.trim()) {
+        item.mandirId = DEFAULT_MANDIR_ID
+        changed = true
+      }
+    }
+  }
+  return changed
+}
+
 function ensureDbShape(db) {
   let changed = false
 
@@ -25,10 +128,16 @@ function ensureDbShape(db) {
   }
 
   const collectionKeys = [
+    'mandirs',
     'users',
+    'devoteeUsers',
+    'devoteeAffiliations',
+    'deviceTokens',
+    'globalCalendarEntries',
     'families',
     'transactions',
     'paymentIntents',
+    'contentLibrary',
     'expenses',
     'events',
     'eventRegistrations',
@@ -38,6 +147,7 @@ function ensureDbShape(db) {
     'poojaBookings',
     'whatsappLogs',
     'approvalRequests',
+    'whatsAppRetryQueue',
   ]
 
   for (const key of collectionKeys) {
@@ -48,15 +158,122 @@ function ensureDbShape(db) {
     }
   }
 
+  if (ensureMandirShape(root)) {
+    changed = true
+  }
+  if (ensureTenantScopedCollections(root)) {
+    changed = true
+  }
+
+  const familiesById = new Map(
+    root.families.map((family) => [family.familyId, family]),
+  )
+
   for (const user of root.users) {
     if (!user || typeof user !== 'object') continue
-    if (isPasswordHash(user.passwordHash)) continue
-    const legacyPassword = typeof user.password === 'string' ? user.password : ''
-    if (!legacyPassword) continue
-    user.passwordHash = hashPassword(legacyPassword)
-    delete user.password
-    user.passwordMigratedAt = new Date().toISOString()
+    if (!isPasswordHash(user.passwordHash)) {
+      const legacyPassword = typeof user.password === 'string' ? user.password : ''
+      if (legacyPassword) {
+        user.passwordHash = hashPassword(legacyPassword)
+        delete user.password
+        user.passwordMigratedAt = new Date().toISOString()
+        changed = true
+      }
+    }
+    if (typeof user.role !== 'string') continue
+    if (user.role === 'super_admin') {
+      if (user.mandirId) {
+        user.mandirId = ''
+        changed = true
+      }
+    } else if (typeof user.mandirId !== 'string' || !user.mandirId.trim()) {
+      user.mandirId = DEFAULT_MANDIR_ID
+      changed = true
+    }
+  }
+
+  for (const devoteeUser of root.devoteeUsers) {
+    if (!devoteeUser || typeof devoteeUser !== 'object') continue
+    if (typeof devoteeUser.status !== 'string') {
+      devoteeUser.status = 'active'
+      changed = true
+    }
+    const family = familiesById.get(devoteeUser.familyId)
+    const familyMandirId = family?.mandirId || DEFAULT_MANDIR_ID
+    if (typeof devoteeUser.mandirId !== 'string' || !devoteeUser.mandirId.trim()) {
+      devoteeUser.mandirId = familyMandirId
+      changed = true
+    }
+    if (typeof devoteeUser.email !== 'string') {
+      devoteeUser.email = ''
+      changed = true
+    }
+    if (typeof devoteeUser.whatsapp !== 'string') {
+      devoteeUser.whatsapp = ''
+      changed = true
+    }
+    if (typeof devoteeUser.fullName !== 'string') {
+      devoteeUser.fullName = ''
+      changed = true
+    }
+    if (typeof devoteeUser.createdAt !== 'string') {
+      devoteeUser.createdAt = new Date().toISOString()
+      changed = true
+    }
+    if (typeof devoteeUser.lastLoginAt !== 'string') {
+      devoteeUser.lastLoginAt = ''
+      changed = true
+    }
+  }
+
+  if (!root.devoteeAffiliations.length) {
+    root.devoteeAffiliations = root.devoteeUsers.map((devoteeUser) => ({
+      id: `AFF-${String(devoteeUser.id || '').replace(/^DVT-/, '') || crypto.randomUUID()}`,
+      devoteeUserId: devoteeUser.id,
+      mandirId: devoteeUser.mandirId || DEFAULT_MANDIR_ID,
+      familyId: devoteeUser.familyId || '',
+      isPrimary: true,
+      joinedAt: devoteeUser.createdAt || new Date().toISOString(),
+      status: 'active',
+    }))
     changed = true
+  }
+
+  for (const affiliation of root.devoteeAffiliations) {
+    if (!affiliation || typeof affiliation !== 'object') continue
+    if (typeof affiliation.mandirId !== 'string' || !affiliation.mandirId.trim()) {
+      affiliation.mandirId = DEFAULT_MANDIR_ID
+      changed = true
+    }
+    if (typeof affiliation.status !== 'string') {
+      affiliation.status = 'active'
+      changed = true
+    }
+    if (typeof affiliation.isPrimary !== 'boolean') {
+      affiliation.isPrimary = false
+      changed = true
+    }
+    if (typeof affiliation.joinedAt !== 'string') {
+      affiliation.joinedAt = new Date().toISOString()
+      changed = true
+    }
+  }
+
+  for (const contentItem of root.contentLibrary) {
+    if (!contentItem || typeof contentItem !== 'object') continue
+    if (typeof contentItem.scope !== 'string') {
+      contentItem.scope = 'mandir'
+      changed = true
+    }
+    if (contentItem.scope !== 'global') {
+      if (typeof contentItem.mandirId !== 'string' || !contentItem.mandirId.trim()) {
+        contentItem.mandirId = DEFAULT_MANDIR_ID
+        changed = true
+      }
+    } else if (contentItem.mandirId) {
+      contentItem.mandirId = ''
+      changed = true
+    }
   }
 
   const jobs = ensureObject(root.jobs)
@@ -98,12 +315,6 @@ function ensureDbShape(db) {
     changed = true
   }
 
-  const whatsappQueue = ensureArray(root.whatsAppRetryQueue)
-  if (whatsappQueue !== root.whatsAppRetryQueue) {
-    root.whatsAppRetryQueue = whatsappQueue
-    changed = true
-  }
-
   const paymentPortal = ensureObject(root.paymentPortal)
   if (paymentPortal !== root.paymentPortal) {
     root.paymentPortal = paymentPortal
@@ -131,6 +342,10 @@ function ensureDbShape(db) {
   }
   if (typeof paymentPortal.updatedAt !== 'string') {
     paymentPortal.updatedAt = ''
+    changed = true
+  }
+  if (typeof paymentPortal.mandirId !== 'string' || !paymentPortal.mandirId.trim()) {
+    paymentPortal.mandirId = DEFAULT_MANDIR_ID
     changed = true
   }
 

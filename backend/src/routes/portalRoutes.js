@@ -1,110 +1,29 @@
 const express = require('express')
-const QRCode = require('qrcode')
 const { authorize } = require('../middleware/authorize')
 const { getDb, saveDb } = require('../store/db')
-const { PAYMENT_GATEWAYS, POOJA_SLOTS } = require('../constants/domain')
+const {
+  PAYMENT_GATEWAYS,
+  POOJA_SLOTS,
+  TRANSACTION_TYPES,
+  FUND_CATEGORIES,
+} = require('../constants/domain')
 const { badRequest } = require('../utils/http')
 const { ensurePositiveNumber, ensureRequiredString } = require('../utils/validation')
 const { createId } = require('../utils/ids')
+const {
+  getPortalConfig,
+  buildPaymentInstructions,
+  buildFamilyPortalSummary,
+} = require('../services/portalService')
+const { resolveMandirId, getRecordMandirId, withMandir, scopeDbByMandir } = require('../services/tenantService')
 
 const router = express.Router()
-
-function getPortalConfig(db) {
-  const config = db.paymentPortal || {}
-  return {
-    upiVpa: ensureRequiredString(config.upiVpa),
-    payeeName: ensureRequiredString(config.payeeName) || ensureRequiredString(db.mandirProfile?.name),
-    bankName: ensureRequiredString(config.bankName),
-    accountNumber: ensureRequiredString(config.accountNumber),
-    ifsc: ensureRequiredString(config.ifsc),
-    updatedAt: ensureRequiredString(config.updatedAt),
-  }
-}
-
-async function buildPaymentInstructions(db, paymentIntent) {
-  const config = getPortalConfig(db)
-  const isDirectUpi = paymentIntent.gateway === 'Direct UPI (No Commission)'
-  const isDirectBank = paymentIntent.gateway === 'Direct Bank Transfer (No Commission)'
-
-  const instructions = {
-    paymentLink: `manual://pay/${paymentIntent.id}`,
-    upiLink: '',
-    upiQrDataUrl: '',
-    bankTransfer: isDirectBank
-      ? {
-          payeeName: config.payeeName,
-          bankName: config.bankName,
-          accountNumber: config.accountNumber,
-          ifsc: config.ifsc,
-        }
-      : null,
-  }
-
-  if (isDirectUpi && config.upiVpa) {
-    const params = new URLSearchParams({
-      pa: config.upiVpa,
-      pn: config.payeeName || 'Mandir',
-      am: String(paymentIntent.amount),
-      tn: `JMMS ${paymentIntent.id}`,
-      cu: 'INR',
-    })
-    const upiLink = `upi://pay?${params.toString()}`
-    instructions.upiLink = upiLink
-    instructions.upiQrDataUrl = await QRCode.toDataURL(upiLink, {
-      width: 280,
-      margin: 1,
-    })
-    instructions.paymentLink = upiLink
-  }
-
-  return instructions
-}
-
-function buildPortalSummary(db, familyId) {
-  const family = db.families.find((item) => item.familyId === familyId)
-  if (!family) return null
-
-  const transactions = (db.transactions || []).filter((transaction) => transaction.familyId === familyId)
-  const receipts = transactions
-    .filter((transaction) => transaction.status === 'Paid' && !transaction.cancelled && transaction.receiptPath)
-    .map((transaction) => ({
-      transactionId: transaction.id,
-      receiptNumber: transaction.receiptNumber || '',
-      amount: transaction.amount,
-      fundCategory: transaction.fundCategory,
-      paidAt: transaction.paidAt || transaction.createdAt,
-      receiptPath: transaction.receiptPath,
-    }))
-  const pendingPledges = transactions.filter(
-    (transaction) => transaction.status === 'Pledged' && !transaction.cancelled,
-  )
-
-  const bookings = (db.poojaBookings || []).filter((booking) => booking.familyId === familyId)
-  const eventRegistrations = (db.eventRegistrations || []).filter(
-    (registration) => registration.familyId === familyId,
-  )
-  const paymentIntents = (db.paymentIntents || []).filter((intent) => intent.familyId === familyId)
-
-  return {
-    family,
-    stats: {
-      lifetimeContributions: transactions
-        .filter((transaction) => transaction.status === 'Paid' && !transaction.cancelled)
-        .reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0),
-      pendingAmount: pendingPledges.reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0),
-      receiptCount: receipts.length,
-    },
-    pendingPledges,
-    paymentIntents,
-    receipts,
-    bookings,
-    eventRegistrations,
-  }
-}
 
 router.post('/session', authorize('accessDevoteePortal'), (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
+    const scopedDb = scopeDbByMandir(db, mandirId)
     const familyId = ensureRequiredString(req.body?.familyId)
     const whatsapp = ensureRequiredString(req.body?.whatsapp)
 
@@ -112,17 +31,20 @@ router.post('/session', authorize('accessDevoteePortal'), (req, res, next) => {
       throw badRequest('familyId and whatsapp are required for portal access.')
     }
 
-    const family = db.families.find((item) => item.familyId === familyId)
+    const family = scopedDb.families.find((item) => item.familyId === familyId)
     if (!family || ensureRequiredString(family.whatsapp) !== whatsapp) {
       throw badRequest('Family verification failed. Check family ID and WhatsApp number.')
     }
 
-    const summary = buildPortalSummary(db, familyId)
+    const summary = buildFamilyPortalSummary(scopedDb, familyId)
     return res.json({
       summary,
       poojaSlots: POOJA_SLOTS,
       paymentGateways: PAYMENT_GATEWAYS,
-      paymentPortal: getPortalConfig(db),
+      transactionTypes: TRANSACTION_TYPES,
+      fundCategories: FUND_CATEGORIES,
+      paymentPortal: getPortalConfig(scopedDb),
+      mandirId,
     })
   } catch (error) {
     return next(error)
@@ -132,6 +54,8 @@ router.post('/session', authorize('accessDevoteePortal'), (req, res, next) => {
 router.post('/bookings', authorize('accessDevoteePortal'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
+    const scopedDb = scopeDbByMandir(db, mandirId)
     const familyId = ensureRequiredString(req.body?.familyId)
     const date = ensureRequiredString(req.body?.date)
     const slot = ensureRequiredString(req.body?.slot)
@@ -140,26 +64,28 @@ router.post('/bookings', authorize('accessDevoteePortal'), async (req, res, next
     if (!familyId || !date || !slot) {
       throw badRequest('familyId, date, and slot are required.')
     }
-    if (!db.families.some((family) => family.familyId === familyId)) {
+    if (!scopedDb.families.some((family) => family.familyId === familyId)) {
       throw badRequest('Family profile not found.')
     }
     if (!POOJA_SLOTS.includes(slot)) {
       throw badRequest('Invalid pooja slot.')
     }
 
-    const conflict = db.poojaBookings.find((booking) => booking.date === date && booking.slot === slot)
+    const conflict = db.poojaBookings.find(
+      (booking) => booking.date === date && booking.slot === slot && getRecordMandirId(booking) === mandirId,
+    )
     if (conflict) {
       throw badRequest('This pooja slot is already booked for the selected date.')
     }
 
-    const booking = {
+    const booking = withMandir({
       id: createId('POO'),
       date,
       slot,
       familyId,
       notes: notes || 'Booked from devotee self-service portal',
       overridden: false,
-    }
+    }, mandirId)
 
     db.poojaBookings.unshift(booking)
     await saveDb()
@@ -173,19 +99,34 @@ router.post('/bookings', authorize('accessDevoteePortal'), async (req, res, next
 router.post('/payments/intents', authorize('accessDevoteePortal'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
+    const scopedDb = scopeDbByMandir(db, mandirId)
     const familyId = ensureRequiredString(req.body?.familyId)
     const linkedTransactionId = ensureRequiredString(req.body?.linkedTransactionId)
     const gateway = ensureRequiredString(req.body?.gateway)
+    const requestedTransactionType = ensureRequiredString(req.body?.transactionType)
+    const requestedFundCategory = ensureRequiredString(req.body?.fundCategory)
 
-    if (!familyId || !db.families.some((family) => family.familyId === familyId)) {
+    if (!familyId || !scopedDb.families.some((family) => family.familyId === familyId)) {
       throw badRequest('Valid familyId is required.')
     }
     if (!PAYMENT_GATEWAYS.includes(gateway)) {
       throw badRequest('Invalid payment gateway.')
     }
+    if (requestedTransactionType && !TRANSACTION_TYPES.includes(requestedTransactionType)) {
+      throw badRequest('Invalid transaction type.')
+    }
+    if (requestedFundCategory && !FUND_CATEGORIES.includes(requestedFundCategory)) {
+      throw badRequest('Invalid fund category.')
+    }
 
     const linkedTransaction = linkedTransactionId
-      ? db.transactions.find((transaction) => transaction.id === linkedTransactionId && transaction.familyId === familyId)
+      ? db.transactions.find(
+          (transaction) =>
+            transaction.id === linkedTransactionId &&
+            transaction.familyId === familyId &&
+            getRecordMandirId(transaction) === mandirId,
+        )
       : null
     if (linkedTransactionId && !linkedTransaction) {
       throw badRequest('Linked transaction not found for this family.')
@@ -196,8 +137,10 @@ router.post('/payments/intents', authorize('accessDevoteePortal'), async (req, r
     if (!amount) {
       throw badRequest('amount is required and must be positive.')
     }
+    const transactionType = requestedTransactionType || 'Bhent'
+    const fundCategory = requestedFundCategory || 'General Fund'
 
-    const paymentIntent = {
+    const paymentIntent = withMandir({
       id: createId('PAY'),
       familyId,
       linkedTransactionId: linkedTransactionId || '',
@@ -211,14 +154,16 @@ router.post('/payments/intents', authorize('accessDevoteePortal'), async (req, r
       createdBy: req.user.fullName,
       source: 'devotee_portal',
       note: ensureRequiredString(req.body?.note) || 'Self-service payment intent',
+      transactionType,
+      fundCategory,
       payerUtr: '',
       payerName: '',
       proofSubmittedAt: '',
-    }
+    }, mandirId)
 
     db.paymentIntents.unshift(paymentIntent)
     await saveDb()
-    const instructions = await buildPaymentInstructions(db, paymentIntent)
+    const instructions = await buildPaymentInstructions(scopedDb, paymentIntent)
 
     return res.status(201).json({
       paymentIntent,
@@ -232,7 +177,10 @@ router.post('/payments/intents', authorize('accessDevoteePortal'), async (req, r
 router.post('/payments/:paymentId/proof', authorize('accessDevoteePortal'), async (req, res, next) => {
   try {
     const db = getDb()
-    const paymentIntent = db.paymentIntents.find((item) => item.id === req.params.paymentId)
+    const mandirId = resolveMandirId(req, db)
+    const paymentIntent = db.paymentIntents.find(
+      (item) => item.id === req.params.paymentId && getRecordMandirId(item) === mandirId,
+    )
     if (!paymentIntent) {
       throw badRequest('Payment intent not found.')
     }

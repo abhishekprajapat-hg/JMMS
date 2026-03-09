@@ -7,6 +7,7 @@ const {
   buildFundBalance,
 } = require('../services/accountingService')
 const { ensureRequiredString } = require('../utils/validation')
+const { resolveMandirId, scopeDbByMandir } = require('../services/tenantService')
 
 const router = express.Router()
 
@@ -19,8 +20,10 @@ function getRange(req) {
 
 router.get('/ledger', authorize('viewAccounting'), (req, res) => {
   const db = getDb()
+  const mandirId = resolveMandirId(req, db)
+  const scopedDb = scopeDbByMandir(db, mandirId)
   const range = getRange(req)
-  const entries = buildLedgerEntries(db, range)
+  const entries = buildLedgerEntries(scopedDb, range)
 
   res.json({
     entries,
@@ -33,16 +36,20 @@ router.get('/ledger', authorize('viewAccounting'), (req, res) => {
 
 router.get('/trial-balance', authorize('viewAccounting'), (req, res) => {
   const db = getDb()
+  const mandirId = resolveMandirId(req, db)
+  const scopedDb = scopeDbByMandir(db, mandirId)
   const range = getRange(req)
-  const entries = buildLedgerEntries(db, range)
+  const entries = buildLedgerEntries(scopedDb, range)
   const trial = buildTrialBalance(entries)
   res.json(trial)
 })
 
 router.get('/fund-balance', authorize('viewAccounting'), (req, res) => {
   const db = getDb()
+  const mandirId = resolveMandirId(req, db)
+  const scopedDb = scopeDbByMandir(db, mandirId)
   const range = getRange(req)
-  const output = buildFundBalance(db, range)
+  const output = buildFundBalance(scopedDb, range)
   res.json(output)
 })
 

@@ -13,14 +13,21 @@ const { createId } = require('../utils/ids')
 const { generateReceiptPdf } = require('../services/receiptService')
 const { sendWhatsAppTemplate } = require('../services/whatsappService')
 const { ensureReceiptMetadata } = require('../services/receiptTrustService')
+const {
+  resolveMandirId,
+  filterByMandir,
+  withMandir,
+  getRecordMandirId,
+  getMandirProfile,
+} = require('../services/tenantService')
 
 const router = express.Router()
 
-function getPortalConfig(db) {
+function getPortalConfig(db, mandirId) {
   const config = db.paymentPortal || {}
   return {
     upiVpa: ensureRequiredString(config.upiVpa),
-    payeeName: ensureRequiredString(config.payeeName) || ensureRequiredString(db.mandirProfile?.name),
+    payeeName: ensureRequiredString(config.payeeName) || ensureRequiredString(getMandirProfile(db, mandirId)?.name),
     bankName: ensureRequiredString(config.bankName),
     accountNumber: ensureRequiredString(config.accountNumber),
     ifsc: ensureRequiredString(config.ifsc),
@@ -34,8 +41,8 @@ function maskAccountNumber(value) {
   return `${'*'.repeat(Math.max(0, raw.length - 4))}${raw.slice(-4)}`
 }
 
-function serializePortalConfig(db, { masked = false } = {}) {
-  const config = getPortalConfig(db)
+function serializePortalConfig(db, mandirId, { masked = false } = {}) {
+  const config = getPortalConfig(db, mandirId)
   if (!masked) return config
   return {
     ...config,
@@ -43,16 +50,22 @@ function serializePortalConfig(db, { masked = false } = {}) {
   }
 }
 
-async function buildPaymentInstructions(db, paymentIntent) {
-  const config = getPortalConfig(db)
-  const isDirectUpi = paymentIntent.gateway === 'Direct UPI (No Commission)'
-  const isDirectBank = paymentIntent.gateway === 'Direct Bank Transfer (No Commission)'
+async function buildPaymentInstructions(db, paymentIntent, mandirId) {
+  const config = getPortalConfig(db, mandirId)
+  const hasUpi = Boolean(config.upiVpa)
+  const hasBankTransferDetails = Boolean(
+    config.payeeName ||
+      config.bankName ||
+      config.accountNumber ||
+      config.ifsc,
+  )
 
   const instructions = {
+    preferredGateway: paymentIntent.gateway,
     paymentLink: `manual://pay/${paymentIntent.id}`,
     upiLink: '',
     upiQrDataUrl: '',
-    bankTransfer: isDirectBank
+    bankTransfer: hasBankTransferDetails
       ? {
           payeeName: config.payeeName,
           bankName: config.bankName,
@@ -62,7 +75,7 @@ async function buildPaymentInstructions(db, paymentIntent) {
       : null,
   }
 
-  if (isDirectUpi && config.upiVpa) {
+  if (hasUpi) {
     const params = new URLSearchParams({
       pa: config.upiVpa,
       pn: config.payeeName || 'Mandir',
@@ -82,19 +95,21 @@ async function buildPaymentInstructions(db, paymentIntent) {
   return instructions
 }
 
-async function attachReceiptIfPaid({ db, transaction, munimName }) {
+async function attachReceiptIfPaid({ db, transaction, munimName, mandirId }) {
   if (transaction.status !== 'Paid') return transaction
 
   ensureReceiptMetadata(db, transaction)
   const familyName =
     transaction.type === 'Gupt Daan'
       ? 'Anonymous (Gupt Daan)'
-      : db.families.find((item) => item.familyId === transaction.familyId)?.headName || 'Unknown'
+      : db.families.find(
+          (item) => item.familyId === transaction.familyId && getRecordMandirId(item) === mandirId,
+        )?.headName || 'Unknown'
 
   const receipt = await generateReceiptPdf({
     transaction,
     familyName,
-    mandirProfile: db.mandirProfile,
+    mandirProfile: getMandirProfile(db, mandirId),
     munimName,
     verificationUrl: transaction.receiptVerificationUrl || '',
   })
@@ -108,24 +123,31 @@ async function attachReceiptIfPaid({ db, transaction, munimName }) {
 
 router.get('/', authorizeAny(['managePayments', 'reconcilePayments', 'logDonations', 'viewFinancialTotals']), (req, res) => {
   const db = getDb()
+  const mandirId = resolveMandirId(req, db)
   const canManage = ['trustee', 'admin'].includes(req.user.role)
   res.json({
-    paymentIntents: db.paymentIntents || [],
+    paymentIntents: filterByMandir(db.paymentIntents, mandirId),
     gateways: PAYMENT_GATEWAYS,
-    paymentPortal: serializePortalConfig(db, { masked: !canManage }),
+    transactionTypes: TRANSACTION_TYPES,
+    fundCategories: FUND_CATEGORIES,
+    paymentPortal: serializePortalConfig(db, mandirId, { masked: !canManage }),
+    mandirId,
   })
 })
 
 router.get('/portal-config', authorize('managePayments'), (req, res) => {
   const db = getDb()
+  const mandirId = resolveMandirId(req, db)
   return res.json({
-    paymentPortal: serializePortalConfig(db),
+    paymentPortal: serializePortalConfig(db, mandirId),
+    mandirId,
   })
 })
 
 router.put('/portal-config', authorize('managePayments'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
     const upiVpa = ensureRequiredString(req.body?.upiVpa)
     const payeeName = ensureRequiredString(req.body?.payeeName)
     const bankName = ensureRequiredString(req.body?.bankName)
@@ -139,11 +161,13 @@ router.put('/portal-config', authorize('managePayments'), async (req, res, next)
       accountNumber,
       ifsc,
       updatedAt: new Date().toISOString(),
+      mandirId,
     }
     await saveDb()
 
     return res.json({
-      paymentPortal: serializePortalConfig(db),
+      paymentPortal: serializePortalConfig(db, mandirId),
+      mandirId,
     })
   } catch (error) {
     return next(error)
@@ -153,23 +177,34 @@ router.put('/portal-config', authorize('managePayments'), async (req, res, next)
 router.post('/intents', authorize('managePayments'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
     const familyId = ensureRequiredString(req.body?.familyId)
     const gateway = ensureRequiredString(req.body?.gateway)
     const linkedTransactionId = ensureRequiredString(req.body?.linkedTransactionId)
     const amountInput = ensurePositiveNumber(req.body?.amount)
+    const requestedTransactionType = ensureRequiredString(req.body?.transactionType)
+    const requestedFundCategory = ensureRequiredString(req.body?.fundCategory)
 
     if (!familyId) {
       throw badRequest('familyId is required.')
     }
-    if (!db.families.some((family) => family.familyId === familyId)) {
+    if (!db.families.some((family) => family.familyId === familyId && getRecordMandirId(family) === mandirId)) {
       throw badRequest('Family profile not found.')
     }
     if (!PAYMENT_GATEWAYS.includes(gateway)) {
       throw badRequest('Invalid payment gateway.')
     }
+    if (requestedTransactionType && !TRANSACTION_TYPES.includes(requestedTransactionType)) {
+      throw badRequest('Invalid transaction type.')
+    }
+    if (requestedFundCategory && !FUND_CATEGORIES.includes(requestedFundCategory)) {
+      throw badRequest('Invalid fund category.')
+    }
 
     const linkedTransaction = linkedTransactionId
-      ? db.transactions.find((transaction) => transaction.id === linkedTransactionId)
+      ? db.transactions.find(
+          (transaction) => transaction.id === linkedTransactionId && getRecordMandirId(transaction) === mandirId,
+        )
       : null
     if (linkedTransactionId && !linkedTransaction) {
       throw badRequest('Linked transaction does not exist.')
@@ -179,8 +214,10 @@ router.post('/intents', authorize('managePayments'), async (req, res, next) => {
     if (!amount) {
       throw badRequest('amount is required and must be positive.')
     }
+    const transactionType = requestedTransactionType || 'Bhent'
+    const fundCategory = requestedFundCategory || 'General Fund'
 
-    const paymentIntent = {
+    const paymentIntent = withMandir({
       id: createId('PAY'),
       familyId,
       linkedTransactionId: linkedTransactionId || '',
@@ -194,14 +231,16 @@ router.post('/intents', authorize('managePayments'), async (req, res, next) => {
       createdBy: req.user.fullName,
       source: ensureRequiredString(req.body?.source) || 'staff_console',
       note: ensureRequiredString(req.body?.note),
+      transactionType,
+      fundCategory,
       payerUtr: '',
       payerName: '',
       proofSubmittedAt: '',
-    }
+    }, mandirId)
 
     db.paymentIntents.unshift(paymentIntent)
     await saveDb()
-    const instructions = await buildPaymentInstructions(db, paymentIntent)
+    const instructions = await buildPaymentInstructions(db, paymentIntent, mandirId)
 
     return res.status(201).json({
       paymentIntent,
@@ -215,7 +254,10 @@ router.post('/intents', authorize('managePayments'), async (req, res, next) => {
 router.post('/:paymentId/submit-proof', authorizeAny(['managePayments', 'accessDevoteePortal']), async (req, res, next) => {
   try {
     const db = getDb()
-    const paymentIntent = db.paymentIntents.find((item) => item.id === req.params.paymentId)
+    const mandirId = resolveMandirId(req, db)
+    const paymentIntent = db.paymentIntents.find(
+      (item) => item.id === req.params.paymentId && getRecordMandirId(item) === mandirId,
+    )
     if (!paymentIntent) throw notFound('Payment intent not found.')
     if (!['Pending', 'Proof Submitted'].includes(paymentIntent.status)) {
       throw badRequest('Proof can only be submitted for pending payment intents.')
@@ -249,14 +291,20 @@ router.post('/:paymentId/submit-proof', authorizeAny(['managePayments', 'accessD
 router.post('/:paymentId/reconcile', authorize('reconcilePayments'), async (req, res, next) => {
   try {
     const db = getDb()
-    const paymentIntent = db.paymentIntents.find((item) => item.id === req.params.paymentId)
+    const mandirId = resolveMandirId(req, db)
+    const paymentIntent = db.paymentIntents.find(
+      (item) => item.id === req.params.paymentId && getRecordMandirId(item) === mandirId,
+    )
     if (!paymentIntent) throw notFound('Payment intent not found.')
     if (!['Pending', 'Proof Submitted'].includes(paymentIntent.status)) {
       throw badRequest('Only pending or proof-submitted payment intents can be reconciled.')
     }
 
     const outcome = ensureRequiredString(req.body?.outcome).toLowerCase()
-    const providerReference = ensureRequiredString(req.body?.providerReference) || createId('PGREF')
+    const providerReference =
+      ensureRequiredString(req.body?.providerReference) ||
+      ensureRequiredString(paymentIntent.payerUtr) ||
+      createId('PGREF')
 
     if (!['success', 'failed'].includes(outcome)) {
       throw badRequest('outcome must be success or failed.')
@@ -279,7 +327,10 @@ router.post('/:paymentId/reconcile', authorize('reconcilePayments'), async (req,
     let shouldSendReceipt = false
 
     if (paymentIntent.linkedTransactionId) {
-      const linked = db.transactions.find((transaction) => transaction.id === paymentIntent.linkedTransactionId)
+      const linked = db.transactions.find(
+        (transaction) =>
+          transaction.id === paymentIntent.linkedTransactionId && getRecordMandirId(transaction) === mandirId,
+      )
       if (!linked) {
         throw badRequest('Linked transaction not found for settlement.')
       }
@@ -295,6 +346,7 @@ router.post('/:paymentId/reconcile', authorize('reconcilePayments'), async (req,
           db,
           transaction: linked,
           munimName: req.user.fullName,
+          mandirId,
         })
         Object.assign(linked, withReceipt)
         settledTransaction = linked
@@ -303,16 +355,16 @@ router.post('/:paymentId/reconcile', authorize('reconcilePayments'), async (req,
         settledTransaction = linked
       }
     } else {
-      const transactionType = TRANSACTION_TYPES.includes(req.body?.transactionType)
-        ? req.body.transactionType
-        : 'Bhent'
-      const fundCategory = FUND_CATEGORIES.includes(req.body?.fundCategory)
-        ? req.body.fundCategory
-        : 'General Fund'
+      const requestedTransactionType = ensureRequiredString(req.body?.transactionType)
+      const requestedFundCategory = ensureRequiredString(req.body?.fundCategory)
+      const transactionTypeCandidate = requestedTransactionType || ensureRequiredString(paymentIntent.transactionType)
+      const fundCategoryCandidate = requestedFundCategory || ensureRequiredString(paymentIntent.fundCategory)
+      const transactionType = TRANSACTION_TYPES.includes(transactionTypeCandidate) ? transactionTypeCandidate : 'Bhent'
+      const fundCategory = FUND_CATEGORIES.includes(fundCategoryCandidate) ? fundCategoryCandidate : 'General Fund'
 
       const createdTransaction = await attachReceiptIfPaid({
         db,
-        transaction: {
+        transaction: withMandir({
           id: createId('TRX'),
           familyId: paymentIntent.familyId,
           type: transactionType,
@@ -328,8 +380,9 @@ router.post('/:paymentId/reconcile', authorize('reconcilePayments'), async (req,
           receiptPath: '',
           receiptFileName: '',
           receiptGeneratedBy: '',
-        },
+        }, mandirId),
         munimName: req.user.fullName,
+        mandirId,
       })
       db.transactions.unshift(createdTransaction)
       paymentIntent.linkedTransactionId = createdTransaction.id

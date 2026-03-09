@@ -1,6 +1,7 @@
 const { createId } = require('../utils/ids')
 const { badRequest, notFound } = require('../utils/http')
 const { ensureRequiredString, validateIndianWhatsApp } = require('../utils/validation')
+const { DEFAULT_MANDIR_ID, getRecordMandirId } = require('./tenantService')
 
 const APPROVAL_TYPES = {
   CANCELLATION: 'CANCELLATION',
@@ -23,7 +24,13 @@ function createApprovalRequest(db, { type, payload, requestedBy }) {
     id: createId('APR'),
     type,
     status: APPROVAL_STATUS.PENDING,
-    payload: payload || {},
+    payload: {
+      ...(payload || {}),
+      mandirId:
+        ensureRequiredString(payload?.mandirId) ||
+        ensureRequiredString(requestedBy?.mandirId) ||
+        DEFAULT_MANDIR_ID,
+    },
     requestedBy: requestedBy?.username || '',
     requestedByName: requestedBy?.fullName || '',
     requestedByRole: requestedBy?.role || '',
@@ -38,13 +45,16 @@ function createApprovalRequest(db, { type, payload, requestedBy }) {
 }
 
 function applyCancellationApproval(db, request, reviewer) {
+  const mandirId = ensureRequiredString(request.payload?.mandirId) || DEFAULT_MANDIR_ID
   const transactionId = ensureRequiredString(request.payload?.transactionId)
   const reason = ensureRequiredString(request.payload?.reason)
   if (!transactionId || !reason) {
     throw badRequest('Approval payload for cancellation is invalid.')
   }
 
-  const transaction = db.transactions.find((item) => item.id === transactionId)
+  const transaction = db.transactions.find(
+    (item) => item.id === transactionId && getRecordMandirId(item) === mandirId,
+  )
   if (!transaction) throw notFound('Transaction not found for approval.')
   if (transaction.cancelled) {
     throw badRequest('Transaction already cancelled.')
@@ -57,23 +67,30 @@ function applyCancellationApproval(db, request, reviewer) {
   const log = {
     id: createId('CAN'),
     transactionId: transaction.id,
-    familyName: db.families.find((item) => item.familyId === transaction.familyId)?.headName || 'Anonymous',
+    familyName:
+      db.families.find(
+        (item) => item.familyId === transaction.familyId && getRecordMandirId(item) === mandirId,
+      )?.headName || 'Anonymous',
     amount: transaction.amount,
     reason,
     actionBy: reviewer.fullName,
     createdAt: new Date().toISOString(),
+    mandirId,
   }
   db.cancellationLogs.unshift(log)
   return { transaction, cancellationLog: log }
 }
 
 function applyFamilyUpdateApproval(db, request) {
+  const mandirId = ensureRequiredString(request.payload?.mandirId) || DEFAULT_MANDIR_ID
   const familyId = ensureRequiredString(request.payload?.familyId)
   if (!familyId) {
     throw badRequest('Approval payload for family update is invalid.')
   }
 
-  const family = db.families.find((item) => item.familyId === familyId)
+  const family = db.families.find(
+    (item) => item.familyId === familyId && getRecordMandirId(item) === mandirId,
+  )
   if (!family) throw notFound('Family profile not found for approval.')
 
   const updates = {
@@ -91,7 +108,12 @@ function applyFamilyUpdateApproval(db, request) {
   }
   if (
     updates.whatsapp !== family.whatsapp &&
-    db.families.some((item) => item.familyId !== familyId && item.whatsapp === updates.whatsapp)
+    db.families.some(
+      (item) =>
+        item.familyId !== familyId &&
+        item.whatsapp === updates.whatsapp &&
+        getRecordMandirId(item) === mandirId,
+    )
   ) {
     throw badRequest('A different family already uses this WhatsApp number.')
   }
@@ -101,12 +123,15 @@ function applyFamilyUpdateApproval(db, request) {
 }
 
 function applyExpenseApproval(db, request, reviewer) {
+  const mandirId = ensureRequiredString(request.payload?.mandirId) || DEFAULT_MANDIR_ID
   const expenseId = ensureRequiredString(request.payload?.expenseId)
   if (!expenseId) {
     throw badRequest('Approval payload for expense is invalid.')
   }
 
-  const expense = db.expenses.find((item) => item.id === expenseId)
+  const expense = db.expenses.find(
+    (item) => item.id === expenseId && getRecordMandirId(item) === mandirId,
+  )
   if (!expense) throw notFound('Expense not found for approval.')
   if (expense.status !== 'Pending Approval') {
     throw badRequest('Only pending expenses can be approved.')
@@ -119,12 +144,15 @@ function applyExpenseApproval(db, request, reviewer) {
 }
 
 function applyExpenseRejection(db, request, reviewer) {
+  const mandirId = ensureRequiredString(request.payload?.mandirId) || DEFAULT_MANDIR_ID
   const expenseId = ensureRequiredString(request.payload?.expenseId)
   if (!expenseId) {
     throw badRequest('Approval payload for expense is invalid.')
   }
 
-  const expense = db.expenses.find((item) => item.id === expenseId)
+  const expense = db.expenses.find(
+    (item) => item.id === expenseId && getRecordMandirId(item) === mandirId,
+  )
   if (!expense) throw notFound('Expense not found for rejection.')
   if (expense.status !== 'Pending Approval') {
     throw badRequest('Only pending expenses can be rejected.')

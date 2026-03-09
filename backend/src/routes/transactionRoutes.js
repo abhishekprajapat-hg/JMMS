@@ -10,6 +10,7 @@ const { sendWhatsAppTemplate } = require('../services/whatsappService')
 const { APPROVAL_STATUS, APPROVAL_TYPES, createApprovalRequest } = require('../services/approvalService')
 const { ensureReceiptMetadata } = require('../services/receiptTrustService')
 const { parseCsv, toCsv } = require('../utils/csv')
+const { resolveMandirId, filterByMandir, withMandir, getRecordMandirId } = require('../services/tenantService')
 
 const router = express.Router()
 
@@ -60,14 +61,16 @@ function validateTransactionInput({ body, bypass }) {
   }
 }
 
-async function attachReceiptIfPaid({ db, transaction, munimName }) {
+async function attachReceiptIfPaid({ db, transaction, munimName, mandirId }) {
   if (transaction.status !== 'Paid') return transaction
   ensureReceiptMetadata(db, transaction)
 
   const familyName =
     transaction.type === 'Gupt Daan'
       ? 'Anonymous (Gupt Daan)'
-      : db.families.find((item) => item.familyId === transaction.familyId)?.headName || 'Unknown'
+      : db.families.find(
+          (item) => item.familyId === transaction.familyId && getRecordMandirId(item) === mandirId,
+        )?.headName || 'Unknown'
 
   const receipt = await generateReceiptPdf({
     transaction,
@@ -86,14 +89,16 @@ async function attachReceiptIfPaid({ db, transaction, munimName }) {
 
 router.get('/', authorizeAny(['logDonations', 'viewFinancialTotals']), (req, res) => {
   const db = getDb()
+  const mandirId = resolveMandirId(req, db)
   res.json({
-    transactions: db.transactions,
+    transactions: filterByMandir(db.transactions, mandirId),
   })
 })
 
 router.get('/export/csv', authorizeAny(['logDonations', 'viewFinancialTotals']), (req, res) => {
   const db = getDb()
-  const payload = toCsv(db.transactions, [
+  const mandirId = resolveMandirId(req, db)
+  const payload = toCsv(filterByMandir(db.transactions, mandirId), [
     'id',
     'familyId',
     'type',
@@ -117,6 +122,9 @@ router.get('/export/csv', authorizeAny(['logDonations', 'viewFinancialTotals']),
 router.post('/import/csv', authorize('logDonations'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
+    const tenantFamilies = filterByMandir(db.families, mandirId)
+    const tenantTransactions = filterByMandir(db.transactions, mandirId)
     const csvData = String(req.body?.csvData || '')
     const mode = ensureRequiredString(req.body?.mode).toLowerCase() || 'append'
     const munimName = ensureRequiredString(req.body?.munimName) || req.user.fullName
@@ -155,21 +163,23 @@ router.post('/import/csv', authorize('logDonations'), async (req, res, next) => 
 
         if (
           rowPayload.familyId &&
-          !db.families.some((family) => family.familyId === rowPayload.familyId) &&
+          !tenantFamilies.some((family) => family.familyId === rowPayload.familyId) &&
           !bypass
         ) {
           throw badRequest('Selected family does not exist.')
         }
 
         const providedId = ensureRequiredString(row.id || row.transactionId || row['Transaction ID'])
-        const existing = providedId ? db.transactions.find((item) => item.id === providedId) : null
+        const existing = providedId
+          ? tenantTransactions.find((item) => item.id === providedId)
+          : null
 
         if (existing && mode !== 'upsert') {
           skipped += 1
           continue
         }
 
-        const baseTransaction = {
+        const baseTransaction = withMandir({
           id: providedId || createId('TRX'),
           ...rowPayload,
           createdAt: ensureRequiredString(row.createdAt) || new Date().toISOString(),
@@ -187,12 +197,13 @@ router.post('/import/csv', authorize('logDonations'), async (req, res, next) => 
           receiptIssuedAt: ensureRequiredString(row.receiptIssuedAt),
           receiptVerificationHash: ensureRequiredString(row.receiptVerificationHash),
           receiptVerificationUrl: ensureRequiredString(row.receiptVerificationUrl),
-        }
+        }, mandirId)
 
         const normalized = await attachReceiptIfPaid({
           db,
           transaction: baseTransaction,
           munimName,
+          mandirId,
         })
 
         if (existing) {
@@ -200,6 +211,7 @@ router.post('/import/csv', authorize('logDonations'), async (req, res, next) => 
           updated += 1
         } else {
           db.transactions.unshift(normalized)
+          tenantTransactions.unshift(normalized)
           created += 1
         }
       } catch (rowError) {
@@ -227,17 +239,19 @@ router.post('/import/csv', authorize('logDonations'), async (req, res, next) => 
 router.post('/', authorize('logDonations'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
+    const tenantFamilies = filterByMandir(db.families, mandirId)
     const bypass = canBypass(req)
     const munimName = ensureRequiredString(req.body?.munimName) || req.user.fullName
     const payload = validateTransactionInput({ body: req.body || {}, bypass })
 
-    if (payload.familyId && !db.families.some((family) => family.familyId === payload.familyId) && !bypass) {
+    if (payload.familyId && !tenantFamilies.some((family) => family.familyId === payload.familyId) && !bypass) {
       throw badRequest('Selected family does not exist.')
     }
 
     const transaction = await attachReceiptIfPaid({
       db,
-      transaction: {
+      transaction: withMandir({
         id: createId('TRX'),
         ...payload,
         createdAt: new Date().toISOString(),
@@ -248,8 +262,9 @@ router.post('/', authorize('logDonations'), async (req, res, next) => {
         receiptPath: '',
         receiptFileName: '',
         receiptGeneratedBy: '',
-      },
+      }, mandirId),
       munimName,
+      mandirId,
     })
 
     db.transactions.unshift(transaction)
@@ -274,11 +289,14 @@ router.post('/', authorize('logDonations'), async (req, res, next) => {
 router.patch('/:transactionId/status', authorize('logDonations'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
     const { transactionId } = req.params
     const nextStatus = ensureRequiredString(req.body?.status)
     const munimName = ensureRequiredString(req.body?.munimName) || req.user.fullName
     const bypass = canBypass(req)
-    const transaction = db.transactions.find((item) => item.id === transactionId)
+    const transaction = db.transactions.find(
+      (item) => item.id === transactionId && getRecordMandirId(item) === mandirId,
+    )
     if (!transaction) throw notFound('Transaction not found.')
     if (nextStatus !== 'Paid' && !bypass) {
       throw badRequest('Only transition allowed is Pledged -> Paid.')
@@ -295,6 +313,7 @@ router.patch('/:transactionId/status', authorize('logDonations'), async (req, re
       db,
       transaction,
       munimName,
+      mandirId,
     })
     Object.assign(transaction, withReceipt)
 
@@ -315,10 +334,13 @@ router.patch('/:transactionId/status', authorize('logDonations'), async (req, re
 router.post('/:transactionId/cancel', authorize('cancelOrRefund'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
     const { transactionId } = req.params
     const reason = ensureRequiredString(req.body?.reason)
     const bypass = canBypass(req)
-    const transaction = db.transactions.find((item) => item.id === transactionId)
+    const transaction = db.transactions.find(
+      (item) => item.id === transactionId && getRecordMandirId(item) === mandirId,
+    )
     if (!transaction) throw notFound('Transaction not found.')
 
     if (!reason) {
@@ -337,7 +359,8 @@ router.post('/:transactionId/cancel', authorize('cancelOrRefund'), async (req, r
         (item) =>
           item.status === APPROVAL_STATUS.PENDING &&
           item.type === APPROVAL_TYPES.CANCELLATION &&
-          item.payload?.transactionId === transaction.id,
+          item.payload?.transactionId === transaction.id &&
+          ensureRequiredString(item.payload?.mandirId) === mandirId,
       )
       if (pending) {
         throw badRequest(`Cancellation request is already pending approval (${pending.id}).`)
@@ -347,6 +370,7 @@ router.post('/:transactionId/cancel', authorize('cancelOrRefund'), async (req, r
         type: APPROVAL_TYPES.CANCELLATION,
         payload: {
           transactionId: transaction.id,
+          mandirId,
           reason,
         },
         requestedBy: req.user,
@@ -362,11 +386,15 @@ router.post('/:transactionId/cancel', authorize('cancelOrRefund'), async (req, r
     const log = {
       id: createId('CAN'),
       transactionId: transaction.id,
-      familyName: db.families.find((item) => item.familyId === transaction.familyId)?.headName || 'Anonymous',
+      familyName:
+        db.families.find(
+          (item) => item.familyId === transaction.familyId && getRecordMandirId(item) === mandirId,
+        )?.headName || 'Anonymous',
       amount: transaction.amount,
       reason,
       actionBy: req.user.fullName,
       createdAt: new Date().toISOString(),
+      mandirId,
     }
     db.cancellationLogs.unshift(log)
     await saveDb()
@@ -379,7 +407,8 @@ router.post('/:transactionId/cancel', authorize('cancelOrRefund'), async (req, r
 
 router.get('/cancellations/logs', authorize('cancelOrRefund'), (req, res) => {
   const db = getDb()
-  res.json({ cancellationLogs: db.cancellationLogs })
+  const mandirId = resolveMandirId(req, db)
+  res.json({ cancellationLogs: filterByMandir(db.cancellationLogs, mandirId) })
 })
 
 module.exports = { transactionRoutes: router }

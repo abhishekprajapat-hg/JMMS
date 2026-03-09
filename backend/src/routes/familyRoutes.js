@@ -5,6 +5,7 @@ const { badRequest, notFound } = require('../utils/http')
 const { validateIndianWhatsApp, ensureRequiredString } = require('../utils/validation')
 const { APPROVAL_STATUS, APPROVAL_TYPES, createApprovalRequest } = require('../services/approvalService')
 const { parseCsv, toCsv } = require('../utils/csv')
+const { resolveMandirId, filterByMandir, withMandir, getRecordMandirId } = require('../services/tenantService')
 
 const router = express.Router()
 
@@ -19,12 +20,14 @@ function getNextFamilySequence(db) {
 
 router.get('/', authorize('viewDevoteeDirectory'), (req, res) => {
   const db = getDb()
-  res.json({ families: db.families })
+  const mandirId = resolveMandirId(req, db)
+  res.json({ families: filterByMandir(db.families, mandirId) })
 })
 
 router.post('/', authorize('manageDevotees'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
     const headName = ensureRequiredString(req.body?.headName)
     const gotra = ensureRequiredString(req.body?.gotra)
     const whatsapp = ensureRequiredString(req.body?.whatsapp)
@@ -37,12 +40,12 @@ router.post('/', authorize('manageDevotees'), async (req, res, next) => {
       throw badRequest('Primary WhatsApp must be in +91XXXXXXXXXX format.')
     }
 
-    if (db.families.some((family) => family.whatsapp === whatsapp)) {
+    if (filterByMandir(db.families, mandirId).some((family) => family.whatsapp === whatsapp)) {
       throw badRequest('A family with this WhatsApp number already exists.')
     }
 
     const familyId = `FAM-${String(getNextFamilySequence(db)).padStart(4, '0')}`
-    const family = { familyId, headName, gotra, whatsapp, address }
+    const family = withMandir({ familyId, headName, gotra, whatsapp, address }, mandirId)
     db.families.push(family)
     await saveDb()
 
@@ -54,7 +57,8 @@ router.post('/', authorize('manageDevotees'), async (req, res, next) => {
 
 router.get('/export/csv', authorize('viewDevoteeDirectory'), (req, res) => {
   const db = getDb()
-  const payload = toCsv(db.families, ['familyId', 'headName', 'gotra', 'whatsapp', 'address'])
+  const mandirId = resolveMandirId(req, db)
+  const payload = toCsv(filterByMandir(db.families, mandirId), ['familyId', 'headName', 'gotra', 'whatsapp', 'address'])
   res.setHeader('Content-Type', 'text/csv; charset=utf-8')
   res.setHeader('Content-Disposition', 'attachment; filename="families.csv"')
   res.send(payload)
@@ -63,6 +67,8 @@ router.get('/export/csv', authorize('viewDevoteeDirectory'), (req, res) => {
 router.post('/import/csv', authorize('manageDevotees'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
+    const tenantFamilies = filterByMandir(db.families, mandirId)
     const csvData = String(req.body?.csvData || '')
     const mode = ensureRequiredString(req.body?.mode).toLowerCase() || 'append'
     if (!csvData.trim()) {
@@ -101,12 +107,14 @@ router.post('/import/csv', authorize('manageDevotees'), async (req, res, next) =
         continue
       }
 
-      const byId = familyIdInput ? db.families.find((item) => item.familyId === familyIdInput) : null
-      const byPhone = db.families.find((item) => item.whatsapp === whatsapp)
+      const byId = familyIdInput
+        ? tenantFamilies.find((item) => item.familyId === familyIdInput)
+        : null
+      const byPhone = tenantFamilies.find((item) => item.whatsapp === whatsapp)
 
       if (mode === 'upsert' && (byId || byPhone)) {
         const target = byId || byPhone
-        const duplicatePhone = db.families.some(
+        const duplicatePhone = tenantFamilies.some(
           (item) => item.familyId !== target.familyId && item.whatsapp === whatsapp,
         )
         if (duplicatePhone) {
@@ -133,13 +141,15 @@ router.post('/import/csv', authorize('manageDevotees'), async (req, res, next) =
       const familyId = familyIdInput || `FAM-${String(nextSequence).padStart(4, '0')}`
       if (!familyIdInput) nextSequence += 1
 
-      db.families.push({
+      const createdFamily = withMandir({
         familyId,
         headName,
         gotra,
         whatsapp,
         address,
-      })
+      }, mandirId)
+      db.families.push(createdFamily)
+      tenantFamilies.push(createdFamily)
       created += 1
     }
 
@@ -162,8 +172,10 @@ router.post('/import/csv', authorize('manageDevotees'), async (req, res, next) =
 router.patch('/:familyId', authorize('manageDevotees'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
+    const tenantFamilies = filterByMandir(db.families, mandirId)
     const { familyId } = req.params
-    const family = db.families.find((item) => item.familyId === familyId)
+    const family = tenantFamilies.find((item) => item.familyId === familyId)
     if (!family) {
       throw notFound('Family profile not found.')
     }
@@ -180,7 +192,7 @@ router.patch('/:familyId', authorize('manageDevotees'), async (req, res, next) =
       throw badRequest('Primary WhatsApp must be in +91XXXXXXXXXX format.')
     }
 
-    const duplicateWhatsapp = db.families.some(
+    const duplicateWhatsapp = tenantFamilies.some(
       (item) => item.familyId !== familyId && ensureRequiredString(item.whatsapp) === whatsapp,
     )
     if (duplicateWhatsapp) {
@@ -193,7 +205,8 @@ router.patch('/:familyId', authorize('manageDevotees'), async (req, res, next) =
         (item) =>
           item.status === APPROVAL_STATUS.PENDING &&
           item.type === APPROVAL_TYPES.FAMILY_UPDATE &&
-          item.payload?.familyId === familyId,
+          item.payload?.familyId === familyId &&
+          ensureRequiredString(item.payload?.mandirId) === mandirId,
       )
       if (pending) {
         throw badRequest(`A family update request is already pending (${pending.id}).`)
@@ -202,6 +215,7 @@ router.patch('/:familyId', authorize('manageDevotees'), async (req, res, next) =
       const approvalRequest = createApprovalRequest(db, {
         type: APPROVAL_TYPES.FAMILY_UPDATE,
         payload: {
+          mandirId,
           familyId,
           headName,
           gotra,
@@ -230,13 +244,18 @@ router.patch('/:familyId', authorize('manageDevotees'), async (req, res, next) =
 router.get('/:familyId', authorize('viewDevoteeDirectory'), (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
     const { familyId } = req.params
-    const family = db.families.find((item) => item.familyId === familyId)
+    const family = db.families.find(
+      (item) => item.familyId === familyId && getRecordMandirId(item) === mandirId,
+    )
     if (!family) {
       throw notFound('Family profile not found.')
     }
 
-    const donationHistory = db.transactions.filter((transaction) => transaction.familyId === familyId)
+    const donationHistory = db.transactions.filter(
+      (transaction) => transaction.familyId === familyId && getRecordMandirId(transaction) === mandirId,
+    )
     const lifetimeContributions = donationHistory
       .filter((transaction) => transaction.status === 'Paid' && !transaction.cancelled)
       .reduce((sum, transaction) => sum + transaction.amount, 0)

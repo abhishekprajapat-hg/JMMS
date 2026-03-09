@@ -141,6 +141,7 @@ router.get('/me', authenticate, (req, res) => {
       username: req.user.username,
       role: req.user.role,
       fullName: req.user.fullName,
+      mandirId: req.user.mandirId || '',
     }),
   })
 })

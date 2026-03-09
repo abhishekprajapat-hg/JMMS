@@ -1,6 +1,6 @@
 # JMMS Frontend
 
-React + Vite frontend for the Jain Mandir Management System (JMMS).
+React + Vite admin frontend for the Jain Mandir Management System (JMMS).
 
 ## Run Locally
 

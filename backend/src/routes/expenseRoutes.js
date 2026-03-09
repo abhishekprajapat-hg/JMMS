@@ -6,21 +6,25 @@ const { badRequest, notFound } = require('../utils/http')
 const { ensurePositiveNumber, ensureRequiredString } = require('../utils/validation')
 const { createId } = require('../utils/ids')
 const { APPROVAL_TYPES, createApprovalRequest } = require('../services/approvalService')
+const { resolveMandirId, filterByMandir, withMandir, getRecordMandirId } = require('../services/tenantService')
 
 const router = express.Router()
 
 router.get('/', authorizeAny(['manageExpenses', 'viewAccounting']), (req, res) => {
   const db = getDb()
-  const expenses = [...(db.expenses || [])].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+  const mandirId = resolveMandirId(req, db)
+  const expenses = [...filterByMandir(db.expenses, mandirId)].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
   res.json({
     expenses,
     categories: EXPENSE_CATEGORIES,
+    mandirId,
   })
 })
 
 router.post('/', authorize('manageExpenses'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
     const title = ensureRequiredString(req.body?.title)
     const category = ensureRequiredString(req.body?.category)
     const expenseDate = ensureRequiredString(req.body?.expenseDate)
@@ -39,7 +43,7 @@ router.post('/', authorize('manageExpenses'), async (req, res, next) => {
       throw badRequest('Expense amount must be a positive number.')
     }
 
-    const expense = {
+    const expense = withMandir({
       id: createId('EXP'),
       title,
       category,
@@ -54,7 +58,7 @@ router.post('/', authorize('manageExpenses'), async (req, res, next) => {
       approvedAt: req.user.role === 'trustee' ? new Date().toISOString() : '',
       approvedBy: req.user.role === 'trustee' ? req.user.fullName : '',
       paidAt: '',
-    }
+    }, mandirId)
 
     db.expenses.unshift(expense)
 
@@ -63,6 +67,7 @@ router.post('/', authorize('manageExpenses'), async (req, res, next) => {
         type: APPROVAL_TYPES.EXPENSE,
         payload: {
           expenseId: expense.id,
+          mandirId,
         },
         requestedBy: req.user,
       })
@@ -80,7 +85,10 @@ router.post('/', authorize('manageExpenses'), async (req, res, next) => {
 router.post('/:expenseId/pay', authorize('manageExpenses'), async (req, res, next) => {
   try {
     const db = getDb()
-    const expense = db.expenses.find((item) => item.id === req.params.expenseId)
+    const mandirId = resolveMandirId(req, db)
+    const expense = db.expenses.find(
+      (item) => item.id === req.params.expenseId && getRecordMandirId(item) === mandirId,
+    )
     if (!expense) throw notFound('Expense not found.')
 
     if (expense.status !== 'Approved') {

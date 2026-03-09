@@ -3,6 +3,7 @@ const { createId } = require('../utils/ids')
 const { formatInr } = require('../utils/format')
 const { toISODate } = require('../utils/date')
 const { env } = require('../config/env')
+const { getRecordMandirId, DEFAULT_MANDIR_ID } = require('./tenantService')
 
 const MAX_RETRY_ATTEMPTS = 3
 const RETRY_BACKOFF_MINUTES = [15, 60, 180]
@@ -62,6 +63,7 @@ function createLog({
   initiatedBy,
   attempt = 1,
   retryAt = '',
+  mandirId = DEFAULT_MANDIR_ID,
 }) {
   return {
     id: createId('WLOG'),
@@ -76,20 +78,27 @@ function createLog({
     initiatedBy,
     attempt,
     retryAt,
+    mandirId,
   }
 }
 
-function removeRetryQueueItems(db, { queueId = '', transactionId = '', templateType = '' } = {}) {
+function removeRetryQueueItems(db, { queueId = '', transactionId = '', templateType = '', mandirId = '' } = {}) {
   db.whatsAppRetryQueue = db.whatsAppRetryQueue.filter((item) => {
     if (queueId && item.id === queueId) return false
-    if (transactionId && templateType && item.transactionId === transactionId && item.templateType === templateType) {
+    if (
+      transactionId &&
+      templateType &&
+      item.transactionId === transactionId &&
+      item.templateType === templateType &&
+      (!mandirId || item.mandirId === mandirId)
+    ) {
       return false
     }
     return true
   })
 }
 
-function scheduleRetry(db, { queueId = '', transaction, templateType, trigger, initiatedBy, attempt, error }) {
+function scheduleRetry(db, { queueId = '', transaction, templateType, trigger, initiatedBy, attempt, error, mandirId }) {
   const delayMinutes = RETRY_BACKOFF_MINUTES[Math.max(0, attempt - 1)] || RETRY_BACKOFF_MINUTES.at(-1) || 180
   const nextRetryAt = new Date(Date.now() + delayMinutes * 60 * 1000).toISOString()
 
@@ -107,6 +116,7 @@ function scheduleRetry(db, { queueId = '', transaction, templateType, trigger, i
   const queueItem = {
     id: createId('WQ'),
     transactionId: transaction.id,
+    mandirId,
     templateType,
     trigger,
     initiatedBy,
@@ -142,9 +152,13 @@ async function sendWhatsAppTemplate({
   attempt = 1,
   queueId = '',
   queueOnFailure = true,
+  mandirId = '',
 }) {
   const db = getDb()
-  const family = db.families.find((item) => item.familyId === transaction.familyId)
+  const transactionMandirId = mandirId || getRecordMandirId(transaction)
+  const family = db.families.find(
+    (item) => item.familyId === transaction.familyId && getRecordMandirId(item) === transactionMandirId,
+  )
   const familyName = family?.headName || 'Anonymous'
   const phone = family?.whatsapp || ''
   const config = db.whatsappConfig
@@ -170,12 +184,14 @@ async function sendWhatsAppTemplate({
       detail: 'No WhatsApp number available for this family.',
       initiatedBy,
       attempt,
+      mandirId: transactionMandirId,
     })
     db.whatsappLogs.unshift(skipped)
     removeRetryQueueItems(db, {
       queueId,
       transactionId: transaction.id,
       templateType,
+      mandirId: transactionMandirId,
     })
     await saveDb()
     return skipped
@@ -193,12 +209,14 @@ async function sendWhatsAppTemplate({
       detail: message,
       initiatedBy,
       attempt,
+      mandirId: transactionMandirId,
     })
     db.whatsappLogs.unshift(mockLog)
     removeRetryQueueItems(db, {
       queueId,
       transactionId: transaction.id,
       templateType,
+      mandirId: transactionMandirId,
     })
     await saveDb()
     return mockLog
@@ -301,12 +319,14 @@ async function sendWhatsAppTemplate({
       detail: sentDetail,
       initiatedBy,
       attempt,
+      mandirId: transactionMandirId,
     })
     db.whatsappLogs.unshift(sentLog)
     removeRetryQueueItems(db, {
       queueId,
       transactionId: transaction.id,
       templateType,
+      mandirId: transactionMandirId,
     })
     await saveDb()
     return sentLog
@@ -323,6 +343,7 @@ async function sendWhatsAppTemplate({
         initiatedBy,
         attempt,
         error,
+        mandirId: transactionMandirId,
       })
       retryAt = scheduled.nextRetryAt
     } else {
@@ -340,6 +361,7 @@ async function sendWhatsAppTemplate({
       initiatedBy,
       attempt,
       retryAt,
+      mandirId: transactionMandirId,
     })
     db.whatsappLogs.unshift(failedLog)
     await saveDb()
@@ -347,11 +369,13 @@ async function sendWhatsAppTemplate({
   }
 }
 
-async function runDueDateReminderSweep({ trigger, initiatedBy = 'system' }) {
+async function runDueDateReminderSweep({ trigger, initiatedBy = 'system', mandirId = '' }) {
   const db = getDb()
+  const targetMandirId = mandirId || ''
   const today = toISODate(new Date(), env.timezone)
   const dueTransactions = db.transactions.filter(
     (transaction) =>
+      (!targetMandirId || getRecordMandirId(transaction) === targetMandirId) &&
       transaction.status === 'Pledged' &&
       !transaction.cancelled &&
       transaction.dueDate &&
@@ -368,6 +392,7 @@ async function runDueDateReminderSweep({ trigger, initiatedBy = 'system' }) {
       status: 'No Rows',
       detail: 'No pledged records due today or overdue.',
       initiatedBy,
+      mandirId: targetMandirId || DEFAULT_MANDIR_ID,
     })
     db.whatsappLogs.unshift(noRowsLog)
     db.jobs.dueReminderLastRunDate = today
@@ -381,6 +406,7 @@ async function runDueDateReminderSweep({ trigger, initiatedBy = 'system' }) {
       templateType: 'pledge_due_reminder',
       trigger,
       initiatedBy,
+      mandirId: targetMandirId,
     })
   }
 
@@ -389,12 +415,12 @@ async function runDueDateReminderSweep({ trigger, initiatedBy = 'system' }) {
   return { reminderCount: dueTransactions.length }
 }
 
-async function runWhatsAppRetrySweep({ trigger, initiatedBy = 'system' }) {
+async function runWhatsAppRetrySweep({ trigger, initiatedBy = 'system', mandirId = '' }) {
   const db = getDb()
   const now = new Date()
   const dueEntries = db.whatsAppRetryQueue.filter((item) => {
     const retryAt = Date.parse(item.nextRetryAt || '')
-    return Number.isFinite(retryAt) && retryAt <= now.getTime()
+    return Number.isFinite(retryAt) && retryAt <= now.getTime() && (!mandirId || item.mandirId === mandirId)
   })
 
   if (!dueEntries.length) {
@@ -405,7 +431,9 @@ async function runWhatsAppRetrySweep({ trigger, initiatedBy = 'system' }) {
 
   let retriedCount = 0
   for (const item of dueEntries) {
-    const transaction = db.transactions.find((tx) => tx.id === item.transactionId)
+    const transaction = db.transactions.find(
+      (tx) => tx.id === item.transactionId && (!mandirId || getRecordMandirId(tx) === mandirId),
+    )
     if (!transaction) {
       removeRetryQueueItems(db, { queueId: item.id })
       continue
@@ -419,6 +447,7 @@ async function runWhatsAppRetrySweep({ trigger, initiatedBy = 'system' }) {
       attempt: Number(item.attempt) || 1,
       queueId: item.id,
       queueOnFailure: true,
+      mandirId: item.mandirId || mandirId,
     })
     retriedCount += 1
   }

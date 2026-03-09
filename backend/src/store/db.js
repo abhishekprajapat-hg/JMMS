@@ -7,11 +7,13 @@ const { ensureDbShape } = require('./schema')
 
 const DB_FILE = 'db.json'
 const RECEIPT_DIR_NAME = 'receipts'
+const UPLOAD_DIR_NAME = 'uploads'
 const SNAPSHOT_COLLECTION = 'snapshots'
 const SNAPSHOT_ID = 'jmms_main'
 
 const dbPath = path.join(env.dataDir, DB_FILE)
 const receiptDirPath = path.join(env.dataDir, RECEIPT_DIR_NAME)
+const uploadDirPath = path.join(env.dataDir, UPLOAD_DIR_NAME)
 
 let db = null
 let storageMode = 'file'
@@ -71,6 +73,7 @@ async function initMongoStore() {
 async function initStore() {
   await fs.mkdir(env.dataDir, { recursive: true })
   await fs.mkdir(receiptDirPath, { recursive: true })
+  await fs.mkdir(uploadDirPath, { recursive: true })
 
   const mongoReady = await initMongoStore()
   if (!mongoReady) {
@@ -141,6 +144,10 @@ function getReceiptDirPath() {
   return receiptDirPath
 }
 
+function getUploadDirPath() {
+  return uploadDirPath
+}
+
 function getStorageMode() {
   return storageMode
 }
@@ -152,4 +159,5 @@ module.exports = {
   closeStore,
   getStorageMode,
   getReceiptDirPath,
+  getUploadDirPath,
 }

@@ -21,18 +21,27 @@ const { portalRoutes } = require('./routes/portalRoutes')
 const { expenseRoutes } = require('./routes/expenseRoutes')
 const { accountingRoutes } = require('./routes/accountingRoutes')
 const { eventRoutes } = require('./routes/eventRoutes')
-const { getReceiptDirPath } = require('./store/db')
+const { publicRoutes } = require('./routes/publicRoutes')
+const { userRoutes } = require('./routes/userRoutes')
+const { contentRoutes } = require('./routes/contentRoutes')
+const { getReceiptDirPath, getUploadDirPath } = require('./store/db')
 
 const app = express()
+const allowedOrigins = new Set(env.frontendOrigins || [env.frontendOrigin])
 
 app.use(helmet())
 app.use(
   cors({
-    origin: env.frontendOrigin,
+    origin(origin, callback) {
+      if (!origin) {
+        return callback(null, true)
+      }
+      return callback(null, allowedOrigins.has(origin))
+    },
     credentials: true,
   }),
 )
-app.use(express.json({ limit: '1mb' }))
+app.use(express.json({ limit: '40mb' }))
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'))
 
 app.get('/health', (_req, res) => {
@@ -44,10 +53,13 @@ app.get('/health', (_req, res) => {
 })
 
 app.use('/receipts', express.static(getReceiptDirPath()))
+app.use('/uploads', express.static(getUploadDirPath()))
 app.use('/api/system', systemRoutes)
 app.use('/api/auth', authRoutes)
 app.use('/api/whatsapp/webhook', whatsappWebhookRoutes)
 app.use('/api/whatsapp/adapter', whatsappAdapterRoutes)
+app.use('/api/public', publicRoutes)
+app.use('/api/user', userRoutes)
 
 app.use('/api', authenticate)
 app.use('/api/dashboard', dashboardRoutes)
@@ -62,6 +74,7 @@ app.use('/api/portal', portalRoutes)
 app.use('/api/expenses', expenseRoutes)
 app.use('/api/accounting', accountingRoutes)
 app.use('/api/events', eventRoutes)
+app.use('/api/content', contentRoutes)
 
 app.use(notFoundHandler)
 app.use(errorHandler)

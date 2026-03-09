@@ -14,6 +14,7 @@ function sanitizeUser(user) {
     username: user.username,
     role: user.role,
     fullName: user.fullName,
+    mandirId: user.mandirId || '',
     permissions: getPermissionsForRole(user.role),
   }
 }
@@ -35,6 +36,7 @@ function signAccessToken(user) {
       username: user.username,
       role: user.role,
       fullName: user.fullName,
+      mandirId: user.mandirId || '',
       tokenType: 'access',
     },
     env.jwtSecret,

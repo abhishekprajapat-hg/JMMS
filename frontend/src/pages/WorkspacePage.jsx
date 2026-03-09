@@ -27,6 +27,7 @@ import { PortalModule } from '../modules/PortalModule'
 import { ExpensesModule } from '../modules/ExpensesModule'
 import { AccountingModule } from '../modules/AccountingModule'
 import { EventsModule } from '../modules/EventsModule'
+import { ContentModule } from '../modules/ContentModule'
 import { LanguageToggle } from '../components/layout/LanguageToggle'
 import { AppHeader } from '../components/layout/AppHeader'
 import { ModuleSidebar } from '../components/layout/ModuleSidebar'
@@ -41,6 +42,7 @@ const TOKEN_STORAGE_KEY = 'jmms_auth_token'
 const REFRESH_TOKEN_STORAGE_KEY = 'jmms_refresh_token'
 const LANGUAGE_STORAGE_KEY = 'jmms_language'
 const DEFAULT_MUNIM_NAME = 'Shri Rakesh Jain'
+const NOTICE_AUTO_DISMISS_MS = 4500
 const MODULE_ROUTE_MAP = {
   dashboard: '/dashboard',
   directory: '/directory',
@@ -50,6 +52,7 @@ const MODULE_ROUTE_MAP = {
   expenses: '/expenses',
   accounting: '/accounting',
   events: '/events',
+  content: '/content',
   whatsapp: '/whatsapp',
   inventory: '/inventory',
   scheduler: '/scheduler',
@@ -74,6 +77,7 @@ function shouldShowModule(moduleId, permissions) {
   if (moduleId === 'expenses') return permissions.manageExpenses || permissions.viewAccounting
   if (moduleId === 'accounting') return permissions.viewAccounting
   if (moduleId === 'events') return permissions.manageEvents || permissions.viewSchedule
+  if (moduleId === 'content') return permissions.managePublicContent
   if (moduleId === 'whatsapp') return permissions.manageWhatsApp
   if (moduleId === 'inventory') return permissions.viewInventory || permissions.manageInventory
   if (moduleId === 'scheduler') return permissions.viewSchedule || permissions.manageSchedule
@@ -347,6 +351,14 @@ export function WorkspacePage() {
   function showNotice(type, text) {
     setNotice({ type, text })
   }
+
+  useEffect(() => {
+    if (!notice.text) return undefined
+    const timeoutId = window.setTimeout(() => {
+      setNotice({ type: '', text: '' })
+    }, NOTICE_AUTO_DISMISS_MS)
+    return () => window.clearTimeout(timeoutId)
+  }, [notice.text, notice.type])
 
   function showDonationNoticeWithWhatsApp(log, baseMessage) {
     const familyName = String(log?.familyName || '').trim()
@@ -846,6 +858,7 @@ export function WorkspacePage() {
   }, [currentUser, location.pathname, navigate])
 
   useEffect(() => {
+    if (bootstrapping || !currentUser) return
     if (!visibleModules.some((module) => module.id === activeModule)) {
       const fallbackModuleId = visibleModules[0]?.id || 'dashboard'
       setActiveModule(fallbackModuleId)
@@ -854,7 +867,7 @@ export function WorkspacePage() {
         navigate(fallbackPath, { replace: true })
       }
     }
-  }, [activeModule, visibleModules, location.pathname, navigate])
+  }, [activeModule, visibleModules, location.pathname, navigate, bootstrapping, currentUser])
 
   useEffect(() => {
     setIsMoreMenuOpen(false)
@@ -1013,24 +1026,50 @@ export function WorkspacePage() {
     const submittedUsername = loginForm.username.trim()
     const submittedPassword = loginForm.password
     const normalizedUsername = submittedUsername.toLowerCase()
-    const credentialAliases = {
-      munim: { username: 'admin', password: 'admin123' },
-      sevadar: { username: 'executive', password: 'executive123' },
+    const isKnownDemoPattern = submittedPassword === `${normalizedUsername}123`
+    const fallbackCredentials = {
+      trustee: [{ username: 'munim', password: 'munim123' }],
+      munim: [{ username: 'admin', password: 'admin123' }],
+      admin: [{ username: 'munim', password: 'munim123' }],
+      sevadar: [{ username: 'executive', password: 'executive123' }],
+      executive: [{ username: 'sevadar', password: 'sevadar123' }],
     }
-    const resolvedCredential = credentialAliases[normalizedUsername]
-    const payload =
-      resolvedCredential && submittedPassword === `${normalizedUsername}123`
-        ? resolvedCredential
-        : {
-            username: submittedUsername,
-            password: submittedPassword,
-          }
+    const loginAttempts = [
+      {
+        username: submittedUsername,
+        password: submittedPassword,
+      },
+      ...(
+        isKnownDemoPattern
+          ? fallbackCredentials[normalizedUsername] || []
+          : []
+      ),
+    ]
 
     try {
-      const response = await apiRequest('/auth/login', {
-        method: 'POST',
-        body: payload,
-      })
+      let response = null
+      let lastError = null
+
+      for (const attempt of loginAttempts) {
+        try {
+          response = await apiRequest('/auth/login', {
+            method: 'POST',
+            body: attempt,
+          })
+          break
+        } catch (error) {
+          const message = String(error?.message || '').toLowerCase()
+          const isInvalidCredentialError = message.includes('invalid credentials')
+          if (!isInvalidCredentialError) {
+            throw error
+          }
+          lastError = error
+        }
+      }
+
+      if (!response) {
+        throw lastError || new Error('Invalid credentials.')
+      }
 
       const token = response.token
       const nextRefreshToken = response.refreshToken || ''
@@ -1602,6 +1641,7 @@ export function WorkspacePage() {
     { id: 'expenses', label: 'Expenses', icon: '\u{1F9FE}' },
     { id: 'accounting', label: 'Accounting', icon: '\u{1F4D2}' },
     { id: 'events', label: 'Events', icon: '\u{1F389}' },
+    { id: 'content', label: 'Website Content', icon: '\u{1F4DA}' },
     { id: 'inventory', label: 'Bhandar', icon: '\u{1F4E6}' },
     { id: 'scheduler', label: 'Pooja Scheduler', icon: '\u{1F4C5}' },
   ].filter((entry) => visibleModules.some((module) => module.id === entry.id))
@@ -1630,10 +1670,18 @@ export function WorkspacePage() {
   if (bootstrapping) {
     return (
       <div className="app-shell">
-        <section className="loader-card">
+        <section className="loader-card loader-card-enhanced">
+          <div className="loader-temple" aria-hidden="true">
+            <span className="loader-orbit loader-orbit-outer" />
+            <span className="loader-orbit loader-orbit-inner" />
+            <span className="loader-core">&#128725;</span>
+          </div>
           <p className="eyebrow">Jain Mandir Management System</p>
           <h1>Loading workspace...</h1>
           <p className="subtitle">Connecting to backend services and restoring your session.</p>
+          <div className="loader-progress" role="presentation">
+            <span />
+          </div>
         </section>
       </div>
     )
@@ -1769,6 +1817,7 @@ export function WorkspacePage() {
                   <p><strong>Trustee:</strong> trustee / trustee123</p>
                   <p><strong>Munim:</strong> munim / munim123</p>
                   <p><strong>Sevadar:</strong> sevadar / sevadar123</p>
+                  <p className="hint">If first-run setup was completed earlier, use the setup credentials.</p>
                 </div>
               </>
             )}
@@ -1933,6 +1982,13 @@ export function WorkspacePage() {
               permissions={permissions}
               onNotice={showNotice}
               onRefreshTransactions={refreshTransactions}
+            />
+          )}
+
+          {activeModule === 'content' && permissions.managePublicContent && (
+            <ContentModule
+              authToken={authToken}
+              onNotice={showNotice}
             />
           )}
 

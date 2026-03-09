@@ -156,6 +156,7 @@ export function PortalModule({ authToken, families, onNotice }) {
       })
       setLatestInstructions({
         paymentId: response.paymentIntent.id,
+        preferredGateway: response.preferredGateway,
         paymentLink: response.paymentLink,
         upiLink: response.upiLink,
         upiQrDataUrl: response.upiQrDataUrl,
@@ -388,20 +389,28 @@ export function PortalModule({ authToken, families, onNotice }) {
             {latestInstructions && (
               <div className="stack-form">
                 <h3>Payment Instructions ({latestInstructions.paymentId})</h3>
+                <p className="hint">Preferred: {latestInstructions.preferredGateway || '-'}</p>
                 {latestInstructions.upiLink ? (
-                  <>
+                  <div>
                     <p className="hint">UPI VPA: {paymentPortal.upiVpa || '-'}</p>
                     <p className="hint">UPI Link: {latestInstructions.upiLink}</p>
+                    <a href={latestInstructions.upiLink}>Pay via UPI App</a>
                     {latestInstructions.upiQrDataUrl && (
                       <img src={latestInstructions.upiQrDataUrl} alt="UPI QR" className="qr-preview" />
                     )}
-                  </>
+                  </div>
                 ) : (
-                  <>
-                    <p className="hint">Bank: {latestInstructions.bankTransfer?.bankName || paymentPortal.bankName || '-'}</p>
-                    <p className="hint">A/C: {latestInstructions.bankTransfer?.accountNumber || paymentPortal.accountNumber || '-'}</p>
-                    <p className="hint">IFSC: {latestInstructions.bankTransfer?.ifsc || paymentPortal.ifsc || '-'}</p>
-                  </>
+                  <p className="hint">UPI is not configured for this mandir.</p>
+                )}
+                {latestInstructions.bankTransfer ? (
+                  <div>
+                    <p className="hint">Bank: {latestInstructions.bankTransfer.bankName || paymentPortal.bankName || '-'}</p>
+                    <p className="hint">A/C: {latestInstructions.bankTransfer.accountNumber || paymentPortal.accountNumber || '-'}</p>
+                    <p className="hint">IFSC: {latestInstructions.bankTransfer.ifsc || paymentPortal.ifsc || '-'}</p>
+                    <p className="hint">Payee: {latestInstructions.bankTransfer.payeeName || paymentPortal.payeeName || '-'}</p>
+                  </div>
+                ) : (
+                  <p className="hint">Bank transfer details are not configured for this mandir.</p>
                 )}
               </div>
             )}

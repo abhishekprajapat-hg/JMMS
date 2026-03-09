@@ -143,6 +143,7 @@ export function PaymentsModule({
       setIntents((current) => [response.paymentIntent, ...current])
       setLatestInstructions({
         paymentId: response.paymentIntent.id,
+        preferredGateway: response.preferredGateway,
         paymentLink: response.paymentLink,
         upiLink: response.upiLink,
         upiQrDataUrl: response.upiQrDataUrl,
@@ -194,6 +195,7 @@ export function PaymentsModule({
   }
 
   async function reconcileIntent(paymentId, outcome) {
+    const intent = intents.find((item) => item.id === paymentId)
     setLoading(true)
     try {
       const response = await apiRequest(`/payments/${paymentId}/reconcile`, {
@@ -201,7 +203,9 @@ export function PaymentsModule({
         token: authToken,
         body: {
           outcome,
-          providerReference: `UTR-VERIFY-${Date.now()}`,
+          providerReference: intent?.payerUtr || `UTR-VERIFY-${Date.now()}`,
+          transactionType: intent?.transactionType || '',
+          fundCategory: intent?.fundCategory || '',
           failureReason: outcome === 'failed' ? 'Payment proof rejected by reviewer.' : '',
         },
       })
@@ -378,19 +382,27 @@ export function PaymentsModule({
         {latestInstructions && (
           <div className="stack-form">
             <h3>Latest Payment Instructions ({latestInstructions.paymentId})</h3>
+            <p className="hint">Preferred: {latestInstructions.preferredGateway || '-'}</p>
             {latestInstructions.upiLink ? (
-              <>
+              <div>
                 <p className="hint">UPI Link: {latestInstructions.upiLink}</p>
+                <a href={latestInstructions.upiLink}>Pay via UPI App</a>
                 {latestInstructions.upiQrDataUrl && (
                   <img src={latestInstructions.upiQrDataUrl} alt="UPI QR" className="qr-preview" />
                 )}
-              </>
+              </div>
             ) : (
-              <>
-                <p className="hint">Bank: {latestInstructions.bankTransfer?.bankName || '-'}</p>
-                <p className="hint">A/C: {latestInstructions.bankTransfer?.accountNumber || '-'}</p>
-                <p className="hint">IFSC: {latestInstructions.bankTransfer?.ifsc || '-'}</p>
-              </>
+              <p className="hint">UPI is not configured for this mandir.</p>
+            )}
+            {latestInstructions.bankTransfer ? (
+              <div>
+                <p className="hint">Bank: {latestInstructions.bankTransfer.bankName || '-'}</p>
+                <p className="hint">A/C: {latestInstructions.bankTransfer.accountNumber || '-'}</p>
+                <p className="hint">IFSC: {latestInstructions.bankTransfer.ifsc || '-'}</p>
+                <p className="hint">Payee: {latestInstructions.bankTransfer.payeeName || '-'}</p>
+              </div>
+            ) : (
+              <p className="hint">Bank transfer details are not configured for this mandir.</p>
             )}
           </div>
         )}

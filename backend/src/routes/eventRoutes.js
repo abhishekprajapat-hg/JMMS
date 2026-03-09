@@ -5,6 +5,7 @@ const { EVENT_HALLS } = require('../constants/domain')
 const { badRequest, notFound } = require('../utils/http')
 const { ensurePositiveInteger, ensurePositiveNumber, ensureRequiredString } = require('../utils/validation')
 const { createId } = require('../utils/ids')
+const { resolveMandirId, filterByMandir, withMandir, getRecordMandirId } = require('../services/tenantService')
 
 const router = express.Router()
 
@@ -24,20 +25,25 @@ function withSeatStats(events, registrations) {
 
 router.get('/', authorizeAny(['manageEvents', 'viewSchedule', 'accessDevoteePortal']), (req, res) => {
   const db = getDb()
-  const events = withSeatStats(db.events || [], db.eventRegistrations || []).sort((a, b) =>
+  const mandirId = resolveMandirId(req, db)
+  const tenantEvents = filterByMandir(db.events, mandirId)
+  const tenantRegistrations = filterByMandir(db.eventRegistrations, mandirId)
+  const events = withSeatStats(tenantEvents, tenantRegistrations).sort((a, b) =>
     String(a.date).localeCompare(String(b.date)),
   )
 
   res.json({
     halls: EVENT_HALLS,
     events,
-    registrations: db.eventRegistrations || [],
+    registrations: tenantRegistrations,
+    mandirId,
   })
 })
 
 router.post('/', authorize('manageEvents'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
     const name = ensureRequiredString(req.body?.name)
     const date = ensureRequiredString(req.body?.date)
     const hall = ensureRequiredString(req.body?.hall)
@@ -55,7 +61,7 @@ router.post('/', authorize('manageEvents'), async (req, res, next) => {
       throw badRequest('Invalid hall selection.')
     }
 
-    const event = {
+    const event = withMandir({
       id: createId('EVT'),
       name,
       date,
@@ -66,7 +72,7 @@ router.post('/', authorize('manageEvents'), async (req, res, next) => {
       notes,
       createdAt: new Date().toISOString(),
       createdBy: req.user.fullName,
-    }
+    }, mandirId)
 
     db.events.unshift(event)
     await saveDb()
@@ -80,7 +86,8 @@ router.post('/', authorize('manageEvents'), async (req, res, next) => {
 router.post('/:eventId/register', authorizeAny(['manageEvents', 'accessDevoteePortal']), async (req, res, next) => {
   try {
     const db = getDb()
-    const event = db.events.find((item) => item.id === req.params.eventId)
+    const mandirId = resolveMandirId(req, db)
+    const event = db.events.find((item) => item.id === req.params.eventId && getRecordMandirId(item) === mandirId)
     if (!event) throw notFound('Event not found.')
 
     const familyId = ensureRequiredString(req.body?.familyId)
@@ -90,26 +97,29 @@ router.post('/:eventId/register', authorizeAny(['manageEvents', 'accessDevoteePo
     if (!familyId || !seats) {
       throw badRequest('familyId and seats are required.')
     }
-    if (!db.families.some((family) => family.familyId === familyId)) {
+    if (!db.families.some((family) => family.familyId === familyId && getRecordMandirId(family) === mandirId)) {
       throw badRequest('Family profile not found.')
     }
 
     const duplicate = db.eventRegistrations.find(
-      (registration) => registration.eventId === event.id && registration.familyId === familyId,
+      (registration) =>
+        registration.eventId === event.id &&
+        registration.familyId === familyId &&
+        getRecordMandirId(registration) === mandirId,
     )
     if (duplicate) {
       throw badRequest('This family is already registered for the event.')
     }
 
     const seatsBooked = db.eventRegistrations
-      .filter((registration) => registration.eventId === event.id)
+      .filter((registration) => registration.eventId === event.id && getRecordMandirId(registration) === mandirId)
       .reduce((sum, registration) => sum + (Number(registration.seats) || 0), 0)
 
     if (seatsBooked + seats > event.capacity) {
       throw badRequest('Not enough seats available for this event.')
     }
 
-    const registration = {
+    const registration = withMandir({
       id: createId('REG'),
       eventId: event.id,
       familyId,
@@ -119,11 +129,11 @@ router.post('/:eventId/register', authorizeAny(['manageEvents', 'accessDevoteePo
       checkedInAt: '',
       paymentStatus: event.feePerFamily > 0 ? 'Pending' : 'Not Required',
       transactionId: '',
-    }
+    }, mandirId)
 
     let transaction = null
     if (event.feePerFamily > 0) {
-      transaction = {
+      transaction = withMandir({
         id: createId('TRX'),
         familyId,
         type: 'Boli',
@@ -139,7 +149,7 @@ router.post('/:eventId/register', authorizeAny(['manageEvents', 'accessDevoteePo
         receiptPath: '',
         receiptFileName: '',
         receiptGeneratedBy: '',
-      }
+      }, mandirId)
       db.transactions.unshift(transaction)
       registration.transactionId = transaction.id
     }
@@ -156,7 +166,10 @@ router.post('/:eventId/register', authorizeAny(['manageEvents', 'accessDevoteePo
 router.post('/registrations/:registrationId/checkin', authorize('manageEvents'), async (req, res, next) => {
   try {
     const db = getDb()
-    const registration = db.eventRegistrations.find((item) => item.id === req.params.registrationId)
+    const mandirId = resolveMandirId(req, db)
+    const registration = db.eventRegistrations.find(
+      (item) => item.id === req.params.registrationId && getRecordMandirId(item) === mandirId,
+    )
     if (!registration) throw notFound('Registration not found.')
 
     if (!registration.checkedInAt) {

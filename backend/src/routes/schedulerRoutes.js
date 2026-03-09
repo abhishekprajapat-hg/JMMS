@@ -6,6 +6,7 @@ const { badRequest } = require('../utils/http')
 const { createId } = require('../utils/ids')
 const { ensureRequiredString } = require('../utils/validation')
 const { parseCsv, toCsv } = require('../utils/csv')
+const { resolveMandirId, filterByMandir, withMandir, getRecordMandirId } = require('../services/tenantService')
 
 const router = express.Router()
 
@@ -15,15 +16,18 @@ function canBypass(req) {
 
 router.get('/bookings', authorize('viewSchedule'), (req, res) => {
   const db = getDb()
+  const mandirId = resolveMandirId(req, db)
   res.json({
     slots: POOJA_SLOTS,
-    bookings: db.poojaBookings,
+    bookings: filterByMandir(db.poojaBookings, mandirId),
+    mandirId,
   })
 })
 
 router.get('/bookings/export/csv', authorize('viewSchedule'), (req, res) => {
   const db = getDb()
-  const payload = toCsv(db.poojaBookings, ['id', 'date', 'slot', 'familyId', 'notes', 'overridden'])
+  const mandirId = resolveMandirId(req, db)
+  const payload = toCsv(filterByMandir(db.poojaBookings, mandirId), ['id', 'date', 'slot', 'familyId', 'notes', 'overridden'])
   res.setHeader('Content-Type', 'text/csv; charset=utf-8')
   res.setHeader('Content-Disposition', 'attachment; filename="pooja_bookings.csv"')
   res.send(payload)
@@ -32,6 +36,9 @@ router.get('/bookings/export/csv', authorize('viewSchedule'), (req, res) => {
 router.post('/bookings/import/csv', authorize('manageSchedule'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
+    const tenantFamilies = filterByMandir(db.families, mandirId)
+    const tenantBookings = filterByMandir(db.poojaBookings, mandirId)
     const csvData = String(req.body?.csvData || '')
     const mode = ensureRequiredString(req.body?.mode).toLowerCase() || 'append'
 
@@ -69,14 +76,14 @@ router.post('/bookings/import/csv', authorize('manageSchedule'), async (req, res
         skipped += 1
         continue
       }
-      if (!db.families.some((family) => family.familyId === familyId)) {
+      if (!tenantFamilies.some((family) => family.familyId === familyId)) {
         errors.push(`Row ${index + 2}: Family profile not found.`)
         skipped += 1
         continue
       }
 
-      const existingById = providedId ? db.poojaBookings.find((item) => item.id === providedId) : null
-      const existingBySlot = db.poojaBookings.find((item) => item.date === date && item.slot === slot)
+      const existingById = providedId ? tenantBookings.find((item) => item.id === providedId) : null
+      const existingBySlot = tenantBookings.find((item) => item.date === date && item.slot === slot)
       const existing = existingById || existingBySlot
 
       if (existing && mode !== 'upsert') {
@@ -94,14 +101,16 @@ router.post('/bookings/import/csv', authorize('manageSchedule'), async (req, res
         })
         updated += 1
       } else {
-        db.poojaBookings.unshift({
+        const booking = withMandir({
           id: providedId || createId('POO'),
           date,
           slot,
           familyId,
           notes,
           overridden: false,
-        })
+        }, mandirId)
+        db.poojaBookings.unshift(booking)
+        tenantBookings.unshift(booking)
         created += 1
       }
     }
@@ -125,6 +134,7 @@ router.post('/bookings/import/csv', authorize('manageSchedule'), async (req, res
 router.post('/bookings', authorize('manageSchedule'), async (req, res, next) => {
   try {
     const db = getDb()
+    const mandirId = resolveMandirId(req, db)
     const date = ensureRequiredString(req.body?.date)
     const slot = ensureRequiredString(req.body?.slot)
     const familyId = ensureRequiredString(req.body?.familyId)
@@ -136,23 +146,25 @@ router.post('/bookings', authorize('manageSchedule'), async (req, res, next) => 
     if (!POOJA_SLOTS.includes(slot)) {
       throw badRequest('Invalid pooja slot.')
     }
-    if (!db.families.some((family) => family.familyId === familyId)) {
+    if (!db.families.some((family) => family.familyId === familyId && getRecordMandirId(family) === mandirId)) {
       throw badRequest('Family profile not found.')
     }
 
-    const conflict = db.poojaBookings.find((booking) => booking.date === date && booking.slot === slot)
+    const conflict = db.poojaBookings.find(
+      (booking) => booking.date === date && booking.slot === slot && getRecordMandirId(booking) === mandirId,
+    )
     if (conflict && !canBypass(req)) {
       throw badRequest('This pooja slot is already booked for the selected date.')
     }
 
-    const booking = {
+    const booking = withMandir({
       id: createId('POO'),
       date,
       slot,
       familyId,
       notes,
       overridden: Boolean(conflict && canBypass(req)),
-    }
+    }, mandirId)
     db.poojaBookings.unshift(booking)
     await saveDb()
 
