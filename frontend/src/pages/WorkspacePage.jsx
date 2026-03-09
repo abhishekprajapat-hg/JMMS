@@ -28,6 +28,7 @@ import { ExpensesModule } from '../modules/ExpensesModule'
 import { AccountingModule } from '../modules/AccountingModule'
 import { EventsModule } from '../modules/EventsModule'
 import { ContentModule } from '../modules/ContentModule'
+import { StaffModule } from '../modules/StaffModule'
 import { LanguageToggle } from '../components/layout/LanguageToggle'
 import { AppHeader } from '../components/layout/AppHeader'
 import { ModuleSidebar } from '../components/layout/ModuleSidebar'
@@ -53,6 +54,7 @@ const MODULE_ROUTE_MAP = {
   accounting: '/accounting',
   events: '/events',
   content: '/content',
+  staff: '/staff',
   whatsapp: '/whatsapp',
   inventory: '/inventory',
   scheduler: '/scheduler',
@@ -78,6 +80,7 @@ function shouldShowModule(moduleId, permissions) {
   if (moduleId === 'accounting') return permissions.viewAccounting
   if (moduleId === 'events') return permissions.manageEvents || permissions.viewSchedule
   if (moduleId === 'content') return permissions.managePublicContent
+  if (moduleId === 'staff') return permissions.manageStaffUsers
   if (moduleId === 'whatsapp') return permissions.manageWhatsApp
   if (moduleId === 'inventory') return permissions.viewInventory || permissions.manageInventory
   if (moduleId === 'scheduler') return permissions.viewSchedule || permissions.manageSchedule
@@ -1023,53 +1026,14 @@ export function WorkspacePage() {
     event.preventDefault()
     setWorking(true)
 
-    const submittedUsername = loginForm.username.trim()
-    const submittedPassword = loginForm.password
-    const normalizedUsername = submittedUsername.toLowerCase()
-    const isKnownDemoPattern = submittedPassword === `${normalizedUsername}123`
-    const fallbackCredentials = {
-      trustee: [{ username: 'munim', password: 'munim123' }],
-      munim: [{ username: 'admin', password: 'admin123' }],
-      admin: [{ username: 'munim', password: 'munim123' }],
-      sevadar: [{ username: 'executive', password: 'executive123' }],
-      executive: [{ username: 'sevadar', password: 'sevadar123' }],
-    }
-    const loginAttempts = [
-      {
-        username: submittedUsername,
-        password: submittedPassword,
-      },
-      ...(
-        isKnownDemoPattern
-          ? fallbackCredentials[normalizedUsername] || []
-          : []
-      ),
-    ]
-
     try {
-      let response = null
-      let lastError = null
-
-      for (const attempt of loginAttempts) {
-        try {
-          response = await apiRequest('/auth/login', {
-            method: 'POST',
-            body: attempt,
-          })
-          break
-        } catch (error) {
-          const message = String(error?.message || '').toLowerCase()
-          const isInvalidCredentialError = message.includes('invalid credentials')
-          if (!isInvalidCredentialError) {
-            throw error
-          }
-          lastError = error
-        }
-      }
-
-      if (!response) {
-        throw lastError || new Error('Invalid credentials.')
-      }
+      const response = await apiRequest('/auth/login', {
+        method: 'POST',
+        body: {
+          username: loginForm.username.trim(),
+          password: loginForm.password,
+        },
+      })
 
       const token = response.token
       const nextRefreshToken = response.refreshToken || ''
@@ -1642,6 +1606,7 @@ export function WorkspacePage() {
     { id: 'accounting', label: 'Accounting', icon: '\u{1F4D2}' },
     { id: 'events', label: 'Events', icon: '\u{1F389}' },
     { id: 'content', label: 'Website Content', icon: '\u{1F4DA}' },
+    { id: 'staff', label: 'User Access', icon: '\u{1F511}' },
     { id: 'inventory', label: 'Bhandar', icon: '\u{1F4E6}' },
     { id: 'scheduler', label: 'Pooja Scheduler', icon: '\u{1F4C5}' },
   ].filter((entry) => visibleModules.some((module) => module.id === entry.id))
@@ -1811,14 +1776,7 @@ export function WorkspacePage() {
                     {working ? 'Signing in...' : 'Login'}
                   </button>
                 </form>
-
-                <div className="make-demo-box">
-                  <p className="make-demo-title">Demo Credentials:</p>
-                  <p><strong>Trustee:</strong> trustee / trustee123</p>
-                  <p><strong>Munim:</strong> munim / munim123</p>
-                  <p><strong>Sevadar:</strong> sevadar / sevadar123</p>
-                  <p className="hint">If first-run setup was completed earlier, use the setup credentials.</p>
-                </div>
+                <p className="hint">Use your assigned username and password. Contact trustee/admin if access is needed.</p>
               </>
             )}
           </section>
@@ -1988,6 +1946,15 @@ export function WorkspacePage() {
           {activeModule === 'content' && permissions.managePublicContent && (
             <ContentModule
               authToken={authToken}
+              onNotice={showNotice}
+            />
+          )}
+
+          {activeModule === 'staff' && permissions.manageStaffUsers && (
+            <StaffModule
+              authToken={authToken}
+              currentUser={currentUser}
+              roleConfig={systemReference.roles || ROLE_CONFIG}
               onNotice={showNotice}
             />
           )}

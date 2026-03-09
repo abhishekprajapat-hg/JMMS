@@ -1,4 +1,6 @@
 const express = require('express')
+const { authenticate } = require('../middleware/auth')
+const { authorize } = require('../middleware/authorize')
 const { getDb, getStorageMode, saveDb } = require('../store/db')
 const {
   EVENT_HALLS,
@@ -15,12 +17,52 @@ const { ROLE_CONFIG } = require('../constants/rbac')
 const { ensureRequiredString, validateIndianWhatsApp } = require('../utils/validation')
 const { hashPassword } = require('../utils/passwords')
 const { createId } = require('../utils/ids')
-const { badRequest } = require('../utils/http')
+const { badRequest, unauthorized, forbidden } = require('../utils/http')
 const { verifyReceiptIntegrity } = require('../services/receiptTrustService')
 const { resolveMandirId, getMandirProfile } = require('../services/tenantService')
 const { DEFAULT_MANDIR_ID } = require('../constants/tenant')
+const { sanitizeUser } = require('../services/authService')
 
 const router = express.Router()
+const STAFF_ROLES = ['trustee', 'admin', 'executive']
+
+function getActorUser(db, req) {
+  const actorId = ensureRequiredString(req.user?.sub)
+  if (!actorId) {
+    throw unauthorized('Authenticated user is required.')
+  }
+  const actor =
+    (db.users || []).find((user) => user.id === actorId) || null
+  if (!actor) {
+    throw unauthorized('Authenticated user account not found.')
+  }
+  return actor
+}
+
+function getCreatableRoles(actorRole) {
+  if (actorRole === 'super_admin') return STAFF_ROLES
+  if (actorRole === 'trustee') return ['admin', 'executive']
+  if (actorRole === 'admin') return ['trustee', 'admin', 'executive']
+  return []
+}
+
+function canViewStaffUser(actor, user) {
+  if (actor.role === 'super_admin') return true
+  if (user.role === 'super_admin') return false
+  return user.mandirId === actor.mandirId
+}
+
+function normalizeUsername(value) {
+  return ensureRequiredString(value).toLowerCase()
+}
+
+function ensureValidUsername(value) {
+  const username = normalizeUsername(value)
+  if (!/^[a-z0-9._-]{3,32}$/.test(username)) {
+    throw badRequest('username must be 3-32 chars with letters, numbers, dot, underscore, or hyphen.')
+  }
+  return username
+}
 
 function isSystemInitialized(db) {
   if (db.jobs?.setupCompletedAt) return true
@@ -147,6 +189,84 @@ router.post('/setup', async (req, res, next) => {
       setupCompletedAt: db.jobs.setupCompletedAt,
       trusteeUsername,
       seededFamilyCount: db.families.length,
+    })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+router.get('/users', authenticate, authorize('manageStaffUsers'), (req, res, next) => {
+  try {
+    const db = getDb()
+    const actor = getActorUser(db, req)
+
+    const users = (db.users || [])
+      .filter((user) => canViewStaffUser(actor, user))
+      .map((user) => ({
+        ...sanitizeUser(user),
+        createdAt: user.createdAt || '',
+      }))
+
+    return res.json({
+      users,
+      creatableRoles: getCreatableRoles(actor.role),
+    })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+router.post('/users', authenticate, authorize('manageStaffUsers'), async (req, res, next) => {
+  try {
+    const db = getDb()
+    const actor = getActorUser(db, req)
+    const fullName = ensureRequiredString(req.body?.fullName)
+    const role = ensureRequiredString(req.body?.role)
+    const password = String(req.body?.password || '')
+    const username = ensureValidUsername(req.body?.username)
+
+    if (!fullName || !role || !password) {
+      throw badRequest('fullName, username, role, and password are required.')
+    }
+    if (password.length < 8) {
+      throw badRequest('Password must be at least 8 characters.')
+    }
+
+    const allowedRoles = getCreatableRoles(actor.role)
+    if (!allowedRoles.includes(role)) {
+      throw forbidden(`Role ${actor.role} cannot create ${role} users.`)
+    }
+
+    const duplicate = (db.users || []).find(
+      (user) => normalizeUsername(user.username) === username,
+    )
+    if (duplicate) {
+      throw badRequest('Username already exists.')
+    }
+
+    const mandirId = actor.role === 'super_admin'
+      ? ensureRequiredString(req.body?.mandirId) || DEFAULT_MANDIR_ID
+      : actor.mandirId || DEFAULT_MANDIR_ID
+
+    const user = {
+      id: createId('USR'),
+      username,
+      passwordHash: hashPassword(password),
+      role,
+      fullName,
+      mandirId: role === 'super_admin' ? '' : mandirId,
+      createdAt: new Date().toISOString(),
+      createdBy: actor.username,
+    }
+
+    db.users.unshift(user)
+    await saveDb()
+
+    return res.status(201).json({
+      user: {
+        ...sanitizeUser(user),
+        createdAt: user.createdAt,
+      },
     })
   } catch (error) {
     return next(error)

@@ -27,14 +27,13 @@ Server starts on `http://localhost:4000` by default.
 
 - `MONGO_URI` controls primary persistence (example: `mongodb://127.0.0.1:27017/jmms`)
 - If Mongo cannot be reached, backend falls back to local file store (`data/db.json`).
+- Set `BOOTSTRAP_*` credential variables in `backend/.env` before first boot so seeded users are created with your own credentials.
 
-## Default Users
+## Access Setup
 
-- Trustee: `trustee` / `trustee123`
-- Admin: `admin` / `admin123`
-- Executive: `executive` / `executive123`
-- Super Admin: `superadmin` / `superadmin123`
-- Devotee (sample): `amit.jain@example.org` / `devotee123`
+- Complete first-run setup from admin login screen to create trustee credentials.
+- After login, go to `User Access` module to create admin/executive users.
+- Devotee sample account (for portal testing): `amit.jain@example.org` / `devotee123`
 
 ## Core Endpoints
 

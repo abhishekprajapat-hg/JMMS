@@ -30,6 +30,7 @@ const ROLE_CONFIG = {
       managePublicContent: true,
       manageGlobalLibrary: true,
       viewNetworkVihar: true,
+      manageStaffUsers: true,
     },
   },
   trustee: {
@@ -63,6 +64,7 @@ const ROLE_CONFIG = {
       managePublicContent: true,
       manageGlobalLibrary: false,
       viewNetworkVihar: true,
+      manageStaffUsers: true,
     },
   },
   admin: {
@@ -96,6 +98,7 @@ const ROLE_CONFIG = {
       managePublicContent: true,
       manageGlobalLibrary: false,
       viewNetworkVihar: true,
+      manageStaffUsers: true,
     },
   },
   executive: {
@@ -129,6 +132,7 @@ const ROLE_CONFIG = {
       managePublicContent: false,
       manageGlobalLibrary: false,
       viewNetworkVihar: false,
+      manageStaffUsers: false,
     },
   },
 }

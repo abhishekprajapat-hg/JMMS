@@ -30,6 +30,7 @@ export const ROLE_CONFIG = {
       managePublicContent: true,
       manageGlobalLibrary: true,
       viewNetworkVihar: true,
+      manageStaffUsers: true,
     },
   },
   trustee: {
@@ -63,6 +64,7 @@ export const ROLE_CONFIG = {
       managePublicContent: true,
       manageGlobalLibrary: false,
       viewNetworkVihar: true,
+      manageStaffUsers: true,
     },
   },
   admin: {
@@ -96,6 +98,7 @@ export const ROLE_CONFIG = {
       managePublicContent: true,
       manageGlobalLibrary: false,
       viewNetworkVihar: true,
+      manageStaffUsers: true,
     },
   },
   executive: {
@@ -129,6 +132,7 @@ export const ROLE_CONFIG = {
       managePublicContent: false,
       manageGlobalLibrary: false,
       viewNetworkVihar: false,
+      manageStaffUsers: false,
     },
   },
 }
@@ -174,6 +178,7 @@ export const MODULES = [
   { id: 'accounting', label: 'Accounting' },
   { id: 'events', label: 'Events' },
   { id: 'content', label: 'Website Content' },
+  { id: 'staff', label: 'User Access' },
   { id: 'whatsapp', label: 'WhatsApp Engine' },
   { id: 'inventory', label: 'Bhandar' },
   { id: 'scheduler', label: 'Tithi & Pooja Scheduler' },

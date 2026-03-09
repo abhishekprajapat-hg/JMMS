@@ -24,6 +24,7 @@ function App() {
         <Route path="/accounting" element={<WorkspacePage />} />
         <Route path="/events" element={<WorkspacePage />} />
         <Route path="/content" element={<WorkspacePage />} />
+        <Route path="/staff" element={<WorkspacePage />} />
         <Route path="/whatsapp" element={<WorkspacePage />} />
         <Route path="/inventory" element={<WorkspacePage />} />
         <Route path="/scheduler" element={<WorkspacePage />} />

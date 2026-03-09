@@ -16,8 +16,25 @@ function withMandir(items, mandirId) {
   }))
 }
 
+function getBootstrapValue(name, fallback) {
+  const value = String(process.env[name] || '').trim()
+  return value || fallback
+}
+
 function buildSeedData({ timeZone }) {
   const mandirId = DEFAULT_MANDIR_ID
+  const superAdminUsername = getBootstrapValue('BOOTSTRAP_SUPER_ADMIN_USERNAME', 'superadmin').toLowerCase()
+  const superAdminPassword = getBootstrapValue('BOOTSTRAP_SUPER_ADMIN_PASSWORD', 'SuperAdmin@2026')
+  const superAdminName = getBootstrapValue('BOOTSTRAP_SUPER_ADMIN_NAME', 'Platform Super Admin')
+  const trusteeUsername = getBootstrapValue('BOOTSTRAP_TRUSTEE_USERNAME', 'trustee').toLowerCase()
+  const trusteePassword = getBootstrapValue('BOOTSTRAP_TRUSTEE_PASSWORD', 'Trustee@2026')
+  const trusteeName = getBootstrapValue('BOOTSTRAP_TRUSTEE_NAME', 'Shri Trustee')
+  const adminUsername = getBootstrapValue('BOOTSTRAP_ADMIN_USERNAME', 'admin').toLowerCase()
+  const adminPassword = getBootstrapValue('BOOTSTRAP_ADMIN_PASSWORD', 'Admin@2026')
+  const adminName = getBootstrapValue('BOOTSTRAP_ADMIN_NAME', 'Mandir Admin')
+  const executiveUsername = getBootstrapValue('BOOTSTRAP_EXECUTIVE_USERNAME', 'executive').toLowerCase()
+  const executivePassword = getBootstrapValue('BOOTSTRAP_EXECUTIVE_PASSWORD', 'Executive@2026')
+  const executiveName = getBootstrapValue('BOOTSTRAP_EXECUTIVE_NAME', 'Sevadar Suman')
 
   return {
     version: 1,
@@ -40,34 +57,34 @@ function buildSeedData({ timeZone }) {
     users: [
       {
         id: 'USR-SUPER-001',
-        username: 'superadmin',
-        passwordHash: hashPassword('superadmin123'),
+        username: superAdminUsername,
+        passwordHash: hashPassword(superAdminPassword),
         role: 'super_admin',
-        fullName: 'Platform Super Admin',
+        fullName: superAdminName,
         mandirId: '',
       },
       {
         id: 'USR-TRUSTEE-001',
-        username: 'trustee',
-        passwordHash: hashPassword('trustee123'),
+        username: trusteeUsername,
+        passwordHash: hashPassword(trusteePassword),
         role: 'trustee',
-        fullName: 'Shri Trustee',
+        fullName: trusteeName,
         mandirId,
       },
       {
         id: 'USR-ADMIN-001',
-        username: 'admin',
-        passwordHash: hashPassword('admin123'),
+        username: adminUsername,
+        passwordHash: hashPassword(adminPassword),
         role: 'admin',
-        fullName: 'Shri Rakesh Jain',
+        fullName: adminName,
         mandirId,
       },
       {
         id: 'USR-EXEC-001',
-        username: 'executive',
-        passwordHash: hashPassword('executive123'),
+        username: executiveUsername,
+        passwordHash: hashPassword(executivePassword),
         role: 'executive',
-        fullName: 'Sevadar Suman',
+        fullName: executiveName,
         mandirId,
       },
     ],
