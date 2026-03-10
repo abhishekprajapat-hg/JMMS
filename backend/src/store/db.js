@@ -1,15 +1,16 @@
 const fs = require('node:fs/promises')
 const path = require('node:path')
-const { MongoClient } = require('mongodb')
+const mongoose = require('mongoose')
 const { env } = require('../config/env')
 const { buildSeedData } = require('./seedData')
 const { ensureDbShape } = require('./schema')
+const { loadStoreState, saveStoreState } = require('../models')
 
 const DB_FILE = 'db.json'
 const RECEIPT_DIR_NAME = 'receipts'
 const UPLOAD_DIR_NAME = 'uploads'
-const SNAPSHOT_COLLECTION = 'snapshots'
-const SNAPSHOT_ID = 'jmms_main'
+const LEGACY_SNAPSHOT_COLLECTION = 'snapshots'
+const LEGACY_SNAPSHOT_ID = 'jmms_main'
 
 const dbPath = path.join(env.dataDir, DB_FILE)
 const receiptDirPath = path.join(env.dataDir, RECEIPT_DIR_NAME)
@@ -17,8 +18,6 @@ const uploadDirPath = path.join(env.dataDir, UPLOAD_DIR_NAME)
 
 let db = null
 let storageMode = 'file'
-let mongoClient = null
-let mongoCollection = null
 
 function getMongoDbName(uri) {
   try {
@@ -30,42 +29,76 @@ function getMongoDbName(uri) {
   }
 }
 
+async function readLegacySnapshot(mongoDb) {
+  const legacyCollections = await mongoDb
+    .listCollections({ name: LEGACY_SNAPSHOT_COLLECTION }, { nameOnly: true })
+    .toArray()
+  if (!legacyCollections.length) {
+    return null
+  }
+
+  const snapshot = await mongoDb.collection(LEGACY_SNAPSHOT_COLLECTION).findOne({ _id: LEGACY_SNAPSHOT_ID })
+  if (!snapshot || !snapshot.payload || typeof snapshot.payload !== 'object' || Array.isArray(snapshot.payload)) {
+    return null
+  }
+  return snapshot.payload
+}
+
+async function cleanupLegacySnapshot(mongoDb) {
+  const legacyCollections = await mongoDb
+    .listCollections({ name: LEGACY_SNAPSHOT_COLLECTION }, { nameOnly: true })
+    .toArray()
+  if (!legacyCollections.length) {
+    return
+  }
+
+  const collection = mongoDb.collection(LEGACY_SNAPSHOT_COLLECTION)
+  await collection.deleteOne({ _id: LEGACY_SNAPSHOT_ID })
+  const remaining = await collection.estimatedDocumentCount()
+  if (remaining === 0) {
+    await collection.drop().catch(() => {})
+  }
+}
+
 async function initMongoStore() {
   if (!env.mongoUri) return false
 
   try {
-    mongoClient = new MongoClient(env.mongoUri, {
+    await mongoose.connect(env.mongoUri, {
       serverSelectionTimeoutMS: 3000,
+      dbName: getMongoDbName(env.mongoUri),
     })
-    await mongoClient.connect()
+    const mongoDb = mongoose.connection.db
 
-    const dbName = getMongoDbName(env.mongoUri)
-    const mongoDb = mongoClient.db(dbName)
-    mongoCollection = mongoDb.collection(SNAPSHOT_COLLECTION)
-
-    let snapshot = await mongoCollection.findOne({ _id: SNAPSHOT_ID })
-    if (!snapshot) {
-      const seed = buildSeedData({ timeZone: env.timezone })
-      snapshot = {
-        _id: SNAPSHOT_ID,
-        payload: seed,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }
-      await mongoCollection.insertOne(snapshot)
+    const loaded = await loadStoreState()
+    if (loaded.hasData) {
+      db = loaded.db
+      await cleanupLegacySnapshot(mongoDb).catch(() => {})
+      storageMode = 'mongo'
+      return true
     }
 
-    db = snapshot.payload
+    const legacySnapshotPayload = await readLegacySnapshot(mongoDb)
+    if (legacySnapshotPayload) {
+      db = legacySnapshotPayload
+      await saveStoreState(db)
+      await cleanupLegacySnapshot(mongoDb).catch(() => {})
+      // eslint-disable-next-line no-console
+      console.log('Migrated legacy snapshot store to multi-collection Mongo store.')
+      storageMode = 'mongo'
+      return true
+    }
+
+    db = buildSeedData({ timeZone: env.timezone })
+    await saveStoreState(db)
     storageMode = 'mongo'
     return true
   } catch (error) {
     // eslint-disable-next-line no-console
     console.warn(`Mongo store unavailable (${error.message}). Falling back to file store.`)
-    if (mongoClient) {
-      await mongoClient.close().catch(() => {})
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.disconnect().catch(() => {})
     }
-    mongoClient = null
-    mongoCollection = null
     return false
   }
 }
@@ -111,19 +144,10 @@ async function saveDb() {
   }
 
   if (storageMode === 'mongo') {
-    await mongoCollection.updateOne(
-      { _id: SNAPSHOT_ID },
-      {
-        $set: {
-          payload: db,
-          updatedAt: new Date().toISOString(),
-        },
-        $setOnInsert: {
-          createdAt: new Date().toISOString(),
-        },
-      },
-      { upsert: true },
-    )
+    if (!mongoose.connection.db) {
+      throw new Error('Mongo store is not connected.')
+    }
+    await saveStoreState(db)
     return
   }
 
@@ -133,10 +157,8 @@ async function saveDb() {
 }
 
 async function closeStore() {
-  if (mongoClient) {
-    await mongoClient.close().catch(() => {})
-    mongoClient = null
-    mongoCollection = null
+  if (mongoose.connection.readyState !== 0) {
+    await mongoose.disconnect().catch(() => {})
   }
 }
 

@@ -9,7 +9,7 @@ Express backend for the Jain Mandir Management System (JMMS), including:
 - WhatsApp automation (instant paid receipt + daily due reminder sweep).
 - Bhandar inventory checkout/return audit.
 - Tithi/Pooja scheduler with conflict prevention.
-- Mongo-backed persistence via `MONGO_URI` (with automatic JSON file fallback if Mongo is unavailable).
+- Mongo-backed persistence via `MONGO_URI` using separate collections per entity (with automatic JSON file fallback if Mongo is unavailable).
 - Multi-tenant foundations with `mandirId` isolation primitives.
 
 ## Setup
@@ -26,6 +26,9 @@ Server starts on `http://localhost:4000` by default.
 ## Environment
 
 - `MONGO_URI` controls primary persistence (example: `mongodb://127.0.0.1:27017/jmms`)
+- Mongo mode stores top-level data in separate collections (`families`, `transactions`, `users`, etc.) instead of a single snapshot document.
+- Mongo persistence is managed via Mongoose models under `src/models`.
+- Legacy `snapshots.jmms_main` data is migrated automatically on first startup after this change.
 - If Mongo cannot be reached, backend falls back to local file store (`data/db.json`).
 - Set `BOOTSTRAP_*` credential variables in `backend/.env` before first boot so seeded users are created with your own credentials.
 
