@@ -4,6 +4,7 @@ const BASE_SCHEMA_OPTIONS = {
   strict: false,
   minimize: false,
   versionKey: false,
+  id: false,
 }
 
 function toPascalCase(value) {
@@ -20,11 +21,14 @@ function getOrCreateModel(modelName, schema, collectionName) {
   return mongoose.models[modelName] || mongoose.model(modelName, schema, collectionName)
 }
 
-function stripMongoId(value) {
+function stripMongoId(value, { fallbackIdFromObjectId = false } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return value
   }
   const cloned = { ...value }
+  if (fallbackIdFromObjectId && !cloned.id && cloned._id) {
+    cloned.id = String(cloned._id)
+  }
   delete cloned._id
   return cloned
 }
@@ -46,7 +50,7 @@ function createArrayModel(key, collectionName = key) {
 
   async function load() {
     const documents = await model.find({}).lean()
-    return documents.map((document) => stripMongoId(document))
+    return documents.map((document) => stripMongoId(document, { fallbackIdFromObjectId: true }))
   }
 
   async function save(source) {
@@ -55,7 +59,7 @@ function createArrayModel(key, collectionName = key) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) {
         return { value: item }
       }
-      return stripMongoId(item)
+      return stripMongoId(item, { fallbackIdFromObjectId: true })
     })
 
     await model.deleteMany({})
