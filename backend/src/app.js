@@ -27,6 +27,7 @@ const { contentRoutes } = require('./routes/contentRoutes')
 const { getReceiptDirPath, getUploadDirPath } = require('./store/db')
 
 const app = express()
+app.disable('etag')
 const allowedOrigins = new Set(env.frontendOrigins || [env.frontendOrigin])
 
 app.use(helmet())
@@ -43,6 +44,12 @@ app.use(
 )
 app.use(express.json({ limit: '40mb' }))
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'))
+app.use('/api', (_req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+  res.set('Pragma', 'no-cache')
+  res.set('Expires', '0')
+  next()
+})
 
 app.get('/health', (_req, res) => {
   res.json({

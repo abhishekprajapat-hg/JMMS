@@ -17,8 +17,12 @@ async function parsePayload(response) {
 async function apiRequest(path, { token = '', method = 'GET', body } = {}) {
   const response = await fetch(`${API_BASE_URL}${normalizePath(path)}`, {
     method,
+    cache: 'no-store',
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0',
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
