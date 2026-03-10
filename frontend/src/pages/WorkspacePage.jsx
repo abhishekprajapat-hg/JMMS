@@ -1591,25 +1591,63 @@ export function WorkspacePage() {
     .slice(0, 5)
 
   const roleDashboardSubtitle = {
-    trustee: 'Trustee Dashboard - God View Access',
-    admin: 'Munim Dashboard - Administrative Access',
-    executive: 'Sevadar Dashboard - Read-only Access',
+    trustee: 'Full access to all mandir operations.',
+    admin: 'Operational access for accounting and administration.',
+    executive: 'Limited access for assisted day-to-day work.',
   }[currentUser?.role] || `${roleLabel} Dashboard`
 
   const sidebarModules = [
     { id: 'dashboard', label: 'Dashboard', icon: '\u{1F4CA}' },
-    { id: 'directory', label: 'Devotee Directory', icon: '\u{1F465}' },
+    { id: 'directory', label: 'Families', icon: '\u{1F465}' },
     { id: 'finance', label: 'Donations', icon: '\u20B9' },
-    { id: 'payments', label: 'Online Payments', icon: '\u{1F4B3}' },
-    { id: 'portal', label: 'Devotee Portal', icon: '\u{1F4F1}' },
+    { id: 'payments', label: 'Payments', icon: '\u{1F4B3}' },
+    { id: 'portal', label: 'Public Portal', icon: '\u{1F4F1}' },
     { id: 'expenses', label: 'Expenses', icon: '\u{1F9FE}' },
     { id: 'accounting', label: 'Accounting', icon: '\u{1F4D2}' },
     { id: 'events', label: 'Events', icon: '\u{1F389}' },
-    { id: 'content', label: 'Website Content', icon: '\u{1F4DA}' },
-    { id: 'staff', label: 'User Access', icon: '\u{1F511}' },
-    { id: 'inventory', label: 'Bhandar', icon: '\u{1F4E6}' },
-    { id: 'scheduler', label: 'Pooja Scheduler', icon: '\u{1F4C5}' },
+    { id: 'content', label: 'E-books & Videos', icon: '\u{1F4DA}' },
+    { id: 'staff', label: 'Users', icon: '\u{1F511}' },
+    { id: 'inventory', label: 'Inventory', icon: '\u{1F4E6}' },
+    { id: 'scheduler', label: 'Schedule', icon: '\u{1F4C5}' },
   ].filter((entry) => visibleModules.some((module) => module.id === entry.id))
+  const moduleLabels = {
+    dashboard: 'Dashboard',
+    directory: 'Families',
+    finance: 'Donations',
+    payments: 'Payments',
+    portal: 'Public Portal',
+    expenses: 'Expenses',
+    accounting: 'Accounting',
+    events: 'Events',
+    content: 'E-books & Videos',
+    staff: 'Users',
+    whatsapp: 'WhatsApp',
+    inventory: 'Inventory',
+    scheduler: 'Schedule',
+  }
+  const moduleDescriptions = {
+    dashboard: 'See today summary, recent donations, and important alerts.',
+    directory: 'Search, review, and manage family profiles in one place.',
+    finance: 'Record donations, pledges, refunds, and approval requests.',
+    payments: 'Track online payment links and payment reconciliation.',
+    portal: 'Manage the public devotee portal and family-facing links.',
+    expenses: 'Create and review expenses with approval flow.',
+    accounting: 'Check reports, ledger-style records, and summaries.',
+    events: 'Plan events, halls, and linked donation tracking.',
+    content: 'Publish and update e-books and video content.',
+    staff: 'Create users, assign roles, and manage access.',
+    whatsapp: 'Review WhatsApp logs, retry queue, and provider setup.',
+    inventory: 'Track assets, checkouts, and return status.',
+    scheduler: 'Manage pooja slots, bookings, and calendar exports.',
+  }
+  const activeModuleLabel = moduleLabels[activeModule] || 'Workspace'
+  const activeModuleDescription = moduleDescriptions[activeModule] || 'Manage module data and operations.'
+  const backendConnectionLabel =
+    backendStatus.state === 'online'
+      ? 'Online'
+      : backendStatus.state === 'offline'
+        ? 'Offline'
+        : 'Checking'
   const mobilePrimaryModules = sidebarModules.slice(0, 4)
   const mobileOverflowModules = sidebarModules.slice(4)
   const isMoreTabActive =
@@ -1817,6 +1855,19 @@ export function WorkspacePage() {
         />
 
         <main className="make-main-panel" ref={mainPanelRef}>
+          <section className="make-module-context" data-connection-state={backendStatus.state}>
+            <div>
+              <p className="make-module-eyebrow">Current Module</p>
+              <h1>{activeModuleLabel}</h1>
+              <p>{activeModuleDescription}</p>
+            </div>
+            <div className="make-module-meta">
+              <span>{compactRoleLabel || 'User'}</span>
+              <span>{mandirProfile.name || 'Mandir'}</span>
+              <span>Backend: {backendConnectionLabel}</span>
+            </div>
+          </section>
+
           {notice.text && <div className={`notice ${notice.type}`}>{notice.text}</div>}
 
           {activeModule === 'dashboard' && (

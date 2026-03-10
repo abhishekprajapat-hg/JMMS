@@ -33,6 +33,92 @@ function ensureNumber(value, fallback) {
   return Number.isFinite(value) ? value : fallback
 }
 
+function isLikelyMongoObjectId(value) {
+  return /^[a-fA-F0-9]{24}$/.test(String(value || '').trim())
+}
+
+function remapMandirIdReferences(root, fromMandirId, toMandirId) {
+  if (!fromMandirId || !toMandirId || fromMandirId === toMandirId) {
+    return false
+  }
+
+  let changed = false
+  for (const value of Object.values(root)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (!item || typeof item !== 'object') continue
+        if (item.mandirId === fromMandirId) {
+          item.mandirId = toMandirId
+          changed = true
+        }
+      }
+      continue
+    }
+
+    if (!value || typeof value !== 'object') continue
+    if (value.mandirId === fromMandirId) {
+      value.mandirId = toMandirId
+      changed = true
+    }
+  }
+
+  return changed
+}
+
+function countMandirIdReferences(root, mandirId) {
+  if (!mandirId) return 0
+
+  let count = 0
+  for (const value of Object.values(root)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (!item || typeof item !== 'object') continue
+        if (item.mandirId === mandirId) {
+          count += 1
+        }
+      }
+      continue
+    }
+
+    if (!value || typeof value !== 'object') continue
+    if (value.mandirId === mandirId) {
+      count += 1
+    }
+  }
+  return count
+}
+
+function normalizeSingleMandirId(root) {
+  if (!Array.isArray(root.mandirs) || root.mandirs.length !== 1) {
+    return false
+  }
+
+  const mandir = root.mandirs[0]
+  if (!mandir || typeof mandir !== 'object') {
+    return false
+  }
+
+  const currentMandirId = String(mandir.id || '').trim()
+  if (!currentMandirId || currentMandirId === DEFAULT_MANDIR_ID) {
+    return false
+  }
+
+  if (isLikelyMongoObjectId(currentMandirId)) {
+    remapMandirIdReferences(root, currentMandirId, DEFAULT_MANDIR_ID)
+    mandir.id = DEFAULT_MANDIR_ID
+    return true
+  }
+
+  const currentRefCount = countMandirIdReferences(root, currentMandirId)
+  const defaultRefCount = countMandirIdReferences(root, DEFAULT_MANDIR_ID)
+  if (currentRefCount === 0 && defaultRefCount > 0) {
+    mandir.id = DEFAULT_MANDIR_ID
+    return true
+  }
+
+  return false
+}
+
 function ensureMandirShape(root) {
   let changed = false
   const mandirs = ensureArray(root.mandirs)
@@ -159,6 +245,9 @@ function ensureDbShape(db) {
   }
 
   if (ensureMandirShape(root)) {
+    changed = true
+  }
+  if (normalizeSingleMandirId(root)) {
     changed = true
   }
   if (ensureTenantScopedCollections(root)) {

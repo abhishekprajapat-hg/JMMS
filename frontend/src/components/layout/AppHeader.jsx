@@ -16,7 +16,7 @@ export function AppHeader({
       <div className="make-brand-mark">
         <span className="make-brand-icon" aria-hidden="true">&#128725;</span>
         <div>
-          <h2>JMMS</h2>
+          <h2>Admin Portal</h2>
           <p>{mandirProfile.name || 'Jain Mandir Management'}</p>
         </div>
       </div>
@@ -28,16 +28,16 @@ export function AppHeader({
             className="make-chip-btn"
             onClick={onOpenWhatsAppLogs}
           >
-            &#128172; WhatsApp Logs
+            WhatsApp Logs
           </button>
         )}
         <div className="make-user-block">
           <strong>{currentUser.fullName}</strong>
-          <span>{compactRoleLabel}</span>
+          <span>Signed in as {compactRoleLabel}</span>
           <small>{mandirProfile.address || fallbackAddress}</small>
         </div>
         <button type="button" className="make-chip-btn" onClick={onLogout}>
-          &#10140; Logout
+          Logout
         </button>
       </div>
     </section>

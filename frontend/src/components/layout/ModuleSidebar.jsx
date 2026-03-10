@@ -25,6 +25,10 @@ export function ModuleSidebar({
   return (
     <>
       <nav className="make-sidebar" aria-label="Module navigation">
+        <div className="make-sidebar-head">
+          <p>Navigation</p>
+          <small>{sidebarModules.length} modules</small>
+        </div>
         <div className="make-sidebar-desktop">
           {sidebarModules.map((module) => (
             <ModuleButton
