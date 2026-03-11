@@ -34,7 +34,7 @@ export function LibraryPage({ type, title, subtitle, emptyMessage }) {
   }, [showNotice, type])
 
   return (
-    <section className="panel ring-1 ring-amber-100/60">
+    <section className="panel">
       <div className="panel-head space-y-1">
         <h2>{title}</h2>
         <p>{subtitle}</p>
@@ -78,4 +78,5 @@ export function LibraryPage({ type, title, subtitle, emptyMessage }) {
     </section>
   )
 }
+
 

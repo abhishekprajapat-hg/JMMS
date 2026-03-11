@@ -1,12 +1,12 @@
 import { Navigate, useLocation } from 'react-router-dom'
-import { usePortal } from '../context/usePortal'
+import { useApp } from '../context/AppContext'
 
 export function ProtectedRoute({ children }) {
   const location = useLocation()
-  const { isAuthenticated } = usePortal()
+  const { isAuthenticated } = useApp()
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+    return <Navigate to="/login" replace state={{ from: location.pathname || '/profile' }} />
   }
 
   return children

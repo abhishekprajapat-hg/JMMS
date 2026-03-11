@@ -1,0 +1,94 @@
+const WEEK_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+function padNumber(value) {
+  return String(value).padStart(2, '0')
+}
+
+export function parseIsoDate(value) {
+  if (!value || typeof value !== 'string') return null
+  const [yearText, monthText, dayText] = value.split('-')
+  const year = Number(yearText)
+  const month = Number(monthText)
+  const day = Number(dayText)
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null
+  const parsed = new Date(year, month - 1, day)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed
+}
+
+export function toIsoDate(value) {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return ''
+  return `${value.getFullYear()}-${padNumber(value.getMonth() + 1)}-${padNumber(value.getDate())}`
+}
+
+export function formatLongDate(value) {
+  if (!value) return '-'
+  const parsed = value instanceof Date ? value : parseIsoDate(value)
+  if (!parsed) return '-'
+  return parsed.toLocaleDateString('en-IN', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+export function formatShortDate(value) {
+  if (!value) return '-'
+  const parsed = value instanceof Date ? value : parseIsoDate(value)
+  if (!parsed) return '-'
+  return parsed.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+export function getMonthGrid(baseDate) {
+  const year = baseDate.getFullYear()
+  const month = baseDate.getMonth()
+  const firstDay = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const totalCells = Math.ceil((firstDay + daysInMonth) / 7) * 7
+
+  const cells = []
+  for (let index = 0; index < totalCells; index += 1) {
+    const day = index - firstDay + 1
+    if (day > 0 && day <= daysInMonth) {
+      cells.push(new Date(year, month, day))
+    } else {
+      cells.push(null)
+    }
+  }
+  return cells
+}
+
+export function getWeekDays() {
+  return WEEK_DAYS
+}
+
+export function createDateMap(records) {
+  const map = new Map()
+  records.forEach((record) => {
+    if (record?.date) map.set(record.date, record)
+  })
+  return map
+}
+
+export function buildFallbackDay(date) {
+  const parsed = date instanceof Date ? date : parseIsoDate(date)
+  if (!parsed) return null
+  return {
+    date: toIsoDate(parsed),
+    tithi: 'Not Available',
+    paksha: 'Not Available',
+    nakshatra: 'Not Available',
+    sunrise: '-',
+    sunset: '-',
+    jainMonth: '-',
+    festival: '',
+    fasting: '',
+    auspiciousInfo: 'No calendar data available for this date.',
+    rituals: 'Follow daily samayik and svadhyay.',
+  }
+}

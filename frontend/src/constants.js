@@ -156,7 +156,6 @@ export const POOJA_SLOTS = [
 ]
 
 export const WHATSAPP_PROVIDERS = [
-  'Mock Gateway',
   'Meta WhatsApp Cloud API',
   'Wati',
   'Interakt',

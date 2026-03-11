@@ -2,7 +2,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const mongoose = require('mongoose')
 const { env } = require('../config/env')
-const { buildSeedData } = require('./seedData')
+const { buildSeedData, stripMockSeedData } = require('./seedData')
 const { ensureDbShape } = require('./schema')
 const { loadStoreState, saveStoreState } = require('../models')
 
@@ -124,9 +124,10 @@ async function initStore() {
     db = JSON.parse(content)
   }
 
-  const migration = ensureDbShape(db)
-  db = migration.db
-  if (migration.changed) {
+  const shapeMigration = ensureDbShape(db)
+  db = shapeMigration.db
+  const mockCleanupChanged = stripMockSeedData(db)
+  if (shapeMigration.changed || mockCleanupChanged) {
     await saveDb()
   }
 }

@@ -30,13 +30,13 @@ Server starts on `http://localhost:4000` by default.
 - Mongo persistence is managed via Mongoose models under `src/models`.
 - Legacy `snapshots.jmms_main` data is migrated automatically on first startup after this change.
 - If Mongo cannot be reached, backend falls back to local file store (`data/db.json`).
-- Set `BOOTSTRAP_*` credential variables in `backend/.env` before first boot so seeded users are created with your own credentials.
+- Set `BOOTSTRAP_*` credential variables in `backend/.env` before first boot so seeded staff users are created with your own credentials.
+- New installs seed only baseline system data (mandir + staff + empty operational collections), not demo/mock records.
 
 ## Access Setup
 
 - Complete first-run setup from admin login screen to create trustee credentials.
 - After login, go to `User Access` module to create admin/executive users.
-- Devotee sample account (for portal testing): `amit.jain@example.org` / `devotee123`
 
 ## Core Endpoints
 

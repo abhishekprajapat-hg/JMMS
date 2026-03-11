@@ -1,0 +1,38 @@
+[
+  {
+    "id": "donation-1",
+    "userId": "user-1",
+    "name": "Priya Shah",
+    "email": "priya@jainmandir.org",
+    "phone": "9876543210",
+    "amount": 5100,
+    "purpose": "Paryushan Seva",
+    "paymentMethod": "UPI",
+    "date": "2026-02-18",
+    "status": "Completed"
+  },
+  {
+    "id": "donation-2",
+    "userId": "user-1",
+    "name": "Priya Shah",
+    "email": "priya@jainmandir.org",
+    "phone": "9876543210",
+    "amount": 2100,
+    "purpose": "Mahavir Jayanti Celebration",
+    "paymentMethod": "Card",
+    "date": "2026-01-29",
+    "status": "Completed"
+  },
+  {
+    "id": "donation-3",
+    "userId": null,
+    "name": "Rahul Jain",
+    "email": "rahul@example.com",
+    "phone": "9988776655",
+    "amount": 1100,
+    "purpose": "General Donation",
+    "paymentMethod": "Net Banking",
+    "date": "2026-02-10",
+    "status": "Completed"
+  }
+]

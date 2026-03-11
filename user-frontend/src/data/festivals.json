@@ -1,0 +1,38 @@
+[
+  {
+    "id": "fest-1",
+    "name": "Ayambil Oli",
+    "date": "2026-03-19",
+    "description": "Nine-day period of fasting and spiritual discipline."
+  },
+  {
+    "id": "fest-2",
+    "name": "Mahavir Jayanti",
+    "date": "2026-04-02",
+    "description": "Birth celebration of Bhagwan Mahavir."
+  },
+  {
+    "id": "fest-3",
+    "name": "Varshitap Parna",
+    "date": "2026-04-24",
+    "description": "Completion of year-long austerity with parna ceremony."
+  },
+  {
+    "id": "fest-4",
+    "name": "Paryushan",
+    "date": "2026-08-29",
+    "description": "Eight sacred days for self-purification and reflection."
+  },
+  {
+    "id": "fest-5",
+    "name": "Samvatsari",
+    "date": "2026-09-05",
+    "description": "Day of universal forgiveness and Micchami Dukkadam."
+  },
+  {
+    "id": "fest-6",
+    "name": "Diwali and Nirvana Divas",
+    "date": "2026-11-08",
+    "description": "Commemorates Bhagwan Mahavir's nirvana."
+  }
+]

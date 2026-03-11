@@ -1,390 +1,390 @@
-import { useEffect, useState } from 'react'
-import { formatCurrency, formatDate, toAbsoluteUrl } from '../api'
-import { usePortal } from '../context/usePortal'
+import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { Card } from '../components/Card'
+import { DonationForm } from '../components/DonationForm'
+import { Modal } from '../components/Modal'
+import { PageHeader } from '../components/PageHeader'
+import { useApp } from '../context/AppContext'
 
-const FALLBACK_TRANSACTION_TYPES = ['Daan', 'Bhent', 'Gupt Daan', 'Boli']
-const FALLBACK_FUND_CATEGORIES = ['Mandir Nirman', 'Shanti Dhara', 'Jiv Daya', 'Aahar Daan', 'General Fund']
-
-function getInitialPaymentForm(userData) {
-  const transactionTypes = userData?.transactionTypes?.length
-    ? userData.transactionTypes
-    : FALLBACK_TRANSACTION_TYPES
-  const fundCategories = userData?.fundCategories?.length
-    ? userData.fundCategories
-    : FALLBACK_FUND_CATEGORIES
-
-  return {
-    linkedTransactionId: '',
-    transactionType: transactionTypes[0] || 'Bhent',
-    fundCategory: fundCategories[0] || 'General Fund',
-    amount: '',
-    gateway: userData?.paymentGateways?.[0] || '',
-    note: 'Self-service donation from devotee profile',
-  }
-}
-
-function getInitialProofForm(userData) {
-  const pendingIntent = (userData?.summary?.paymentIntents || []).find((intent) =>
-    ['Pending', 'Proof Submitted'].includes(intent.status),
+function formatCurrency(amount) {
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(
+    Number(amount || 0),
   )
+}
+
+function formatDate(value) {
+  if (!value) return '-'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '-'
+  return parsed.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+const paymentDisplayLabels = ['UPI', 'Bank Transfer']
+
+const upiAppOptions = [
+  { id: 'any', label: 'Any UPI App', packageName: '' },
+  { id: 'gpay', label: 'Google Pay', packageName: 'com.google.android.apps.nbu.paisa.user' },
+  { id: 'phonepe', label: 'PhonePe', packageName: 'com.phonepe.app' },
+  { id: 'paytm', label: 'Paytm', packageName: 'net.one97.paytm' },
+  { id: 'bhim', label: 'BHIM', packageName: 'in.org.npci.upiapp' },
+]
+
+function getPlatformFlags() {
+  if (typeof navigator === 'undefined') {
+    return {
+      isAndroid: false,
+      isDesktop: true,
+    }
+  }
+  const userAgent = String(navigator.userAgent || '').toLowerCase()
+  const isAndroid = userAgent.includes('android')
+  const isIos = /iphone|ipad|ipod/.test(userAgent)
   return {
-    paymentId: pendingIntent?.id || '',
-    payerUtr: '',
-    payerName: '',
+    isAndroid,
+    isDesktop: !isAndroid && !isIos,
   }
 }
 
-function buildUpiAppLinks(upiLink) {
-  if (!upiLink) return []
-  const queryIndex = upiLink.indexOf('?')
-  const query = queryIndex >= 0 ? upiLink.slice(queryIndex + 1) : ''
-  if (!query) {
-    return [{ label: 'Any UPI App', href: upiLink }]
-  }
-
-  return [
-    { label: 'Any UPI App', href: upiLink },
-    { label: 'Google Pay', href: `tez://upi/pay?${query}` },
-    { label: 'PhonePe', href: `phonepe://pay?${query}` },
-    { label: 'Paytm', href: `paytmmp://pay?${query}` },
-    { label: 'BHIM UPI', href: `bhim://upi/pay?${query}` },
-  ]
-}
-
-function detectDesktopViewport() {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true
-  return window.matchMedia('(min-width: 960px) and (hover: hover) and (pointer: fine)').matches
+function buildUpiPayLink(upiLink, packageName, { isAndroid }) {
+  if (!upiLink) return ''
+  if (!packageName || !isAndroid) return upiLink
+  const separatorIndex = upiLink.indexOf('?')
+  if (separatorIndex < 0) return upiLink
+  const query = upiLink.slice(separatorIndex + 1)
+  return `intent://pay?${query}#Intent;scheme=upi;package=${packageName};end`
 }
 
 export function DonationPage() {
   const {
-    userData,
-    working,
-    createPaymentIntent,
-    submitPaymentProof,
-  } = usePortal()
-  const [paymentForm, setPaymentForm] = useState(() => getInitialPaymentForm(userData))
-  const [proofForm, setProofForm] = useState(() => getInitialProofForm(userData))
-  const [latestInstructions, setLatestInstructions] = useState(null)
-  const [isDesktop, setIsDesktop] = useState(detectDesktopViewport)
+    currentUser,
+    isAuthenticated,
+    userDonations,
+    addDonation,
+    submitDonationProof,
+    paymentGateways,
+    paymentPortal,
+    fundCategories,
+    pendingPaymentIntents,
+  } = useApp()
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined
-    const media = window.matchMedia('(min-width: 960px) and (hover: hover) and (pointer: fine)')
-    const handleChange = (event) => setIsDesktop(event.matches)
+  const [latestDonation, setLatestDonation] = useState(null)
+  const [isConfirmationOpen, setIsConfirmationOpen] = useState(false)
+  const [error, setError] = useState('')
+  const [proofError, setProofError] = useState('')
+  const [proofSuccess, setProofSuccess] = useState('')
+  const [proofForm, setProofForm] = useState({
+    payerName: '',
+    payerUtr: '',
+  })
 
-    if (typeof media.addEventListener === 'function') {
-      media.addEventListener('change', handleChange)
-      return () => media.removeEventListener('change', handleChange)
+  const platformFlags = useMemo(() => getPlatformFlags(), [])
+
+  const donationHistoryPreview = useMemo(() => userDonations.slice(0, 5), [userDonations])
+  const upiPaymentOptions = useMemo(() => {
+    const upiLink = latestDonation?.instructions?.upiLink || ''
+    if (!upiLink) return []
+    return upiAppOptions.map((option) => ({
+      ...option,
+      href: buildUpiPayLink(upiLink, option.packageName, platformFlags),
+    }))
+  }, [latestDonation, platformFlags])
+
+  async function handleDonationSubmit(values) {
+    setError('')
+    const result = await addDonation(values)
+    if (!result.ok) {
+      setError(result.message)
+      return
     }
-
-    media.addListener(handleChange)
-    return () => media.removeListener(handleChange)
-  }, [])
-
-  if (!userData) {
-    return (
-      <section className="panel ring-1 ring-amber-100/60">
-        <p>Loading donation page...</p>
-      </section>
-    )
-  }
-
-  const summary = userData.summary || {}
-  const transactionTypes = userData.transactionTypes?.length
-    ? userData.transactionTypes
-    : FALLBACK_TRANSACTION_TYPES
-  const fundCategories = userData.fundCategories?.length
-    ? userData.fundCategories
-    : FALLBACK_FUND_CATEGORIES
-  const paymentGatewayValue = paymentForm.gateway || userData?.paymentGateways?.[0] || ''
-  const transactionTypeValue = paymentForm.transactionType || transactionTypes[0] || 'Bhent'
-  const fundCategoryValue = paymentForm.fundCategory || fundCategories[0] || 'General Fund'
-  const fallbackPendingIntent = (summary?.paymentIntents || []).find((intent) =>
-    ['Pending', 'Proof Submitted'].includes(intent.status),
-  )
-  const paymentIdValue = proofForm.paymentId || fallbackPendingIntent?.id || ''
-  const upiAppLinks = buildUpiAppLinks(latestInstructions?.upiLink)
-
-  async function handlePaymentIntentSubmit(event) {
-    event.preventDefault()
-    if (!paymentGatewayValue || !paymentForm.amount || !transactionTypeValue || !fundCategoryValue) return
-    const response = await createPaymentIntent({
-      ...paymentForm,
-      gateway: paymentGatewayValue,
-      transactionType: transactionTypeValue,
-      fundCategory: fundCategoryValue,
+    setLatestDonation(result.donation)
+    setProofForm({
+      payerName: currentUser?.name || values.name || '',
+      payerUtr: '',
     })
-    if (response) {
-      setLatestInstructions({
-        paymentId: response.paymentIntent.id,
-        transactionType: response.paymentIntent.transactionType || transactionTypeValue,
-        fundCategory: response.paymentIntent.fundCategory || fundCategoryValue,
-        amount: response.paymentIntent.amount || Number(paymentForm.amount) || 0,
-        preferredGateway: response.preferredGateway,
-        paymentLink: response.paymentLink,
-        upiLink: response.upiLink,
-        upiQrDataUrl: response.upiQrDataUrl,
-        bankTransfer: response.bankTransfer,
-      })
-      setProofForm((current) => ({ ...current, paymentId: response.paymentIntent.id }))
-      setPaymentForm((current) => ({
-        ...current,
-        linkedTransactionId: '',
-        amount: '',
-      }))
-    }
+    setProofError('')
+    setProofSuccess('')
+    setIsConfirmationOpen(true)
   }
 
   async function handleProofSubmit(event) {
     event.preventDefault()
-    if (!paymentIdValue || !proofForm.payerUtr) return
-    const response = await submitPaymentProof({
-      ...proofForm,
-      paymentId: paymentIdValue,
-    })
-    if (response) {
-      setProofForm((current) => ({ ...current, payerUtr: '', payerName: '' }))
+    if (!latestDonation?.id) return
+
+    const payerName = String(proofForm.payerName || '').trim()
+    const payerUtr = String(proofForm.payerUtr || '').trim()
+
+    setProofError('')
+    setProofSuccess('')
+
+    if (!payerName) {
+      setProofError('Please enter payer name.')
+      return
     }
+    if (payerUtr.length < 8) {
+      setProofError('Please enter a valid UTR / Transaction ID (minimum 8 characters).')
+      return
+    }
+
+    const result = await submitDonationProof({
+      paymentId: latestDonation.id,
+      payerName,
+      payerUtr,
+    })
+
+    if (!result.ok) {
+      setProofError(result.message || 'Unable to submit payment proof right now.')
+      return
+    }
+
+    setLatestDonation((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        status: result.paymentIntent?.status || 'Proof Submitted',
+        proofSubmitted: true,
+      }
+    })
+    setProofSuccess('Proof submitted successfully. Team will verify your payment shortly.')
   }
 
+  function closeConfirmation() {
+    setIsConfirmationOpen(false)
+    setLatestDonation(null)
+    setProofForm({
+      payerName: currentUser?.name || '',
+      payerUtr: '',
+    })
+    setProofError('')
+    setProofSuccess('')
+  }
+
+  const needsProofSubmission = Boolean(latestDonation) && !latestDonation?.proofSubmitted
+
   return (
-    <section className="profile-stack pb-2">
-      <article className="panel ring-1 ring-amber-100/60">
-        <div className="panel-head split gap-3">
-          <div>
-            <h2>Donation</h2>
-            <p>Select daan type, choose fund category, pay via UPI, then submit UTR proof for admin verification.</p>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Seva"
+        title="Donation Portal"
+        description="Create payment intents directly with backend integration and track your contribution history."
+      />
+
+      {!isAuthenticated && (
+        <Card className="border-orange-200 bg-orange-50/70 dark:border-orange-900/40 dark:bg-zinc-900">
+          <p className="text-sm text-zinc-700 dark:text-zinc-200">
+            Donation submission requires login.
+            {' '}
+            <Link to="/login" className="font-bold text-orange-700 dark:text-orange-300">Login now</Link>
+            {' '}
+            to create payment intents linked with your family account.
+          </p>
+        </Card>
+      )}
+
+      <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+        <Card>
+          <h2 className="font-serif text-2xl text-orange-900 dark:text-orange-100">Make a Donation</h2>
+          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+            This form creates a backend payment intent at <code>/api/user/payments/intents</code>.
+          </p>
+
+          <div className="mt-4">
+            <DonationForm
+              onSubmit={handleDonationSubmit}
+              defaultValues={{
+                name: currentUser?.name,
+                email: currentUser?.email,
+                phone: currentUser?.phone,
+              }}
+              purposeOptions={fundCategories}
+            />
           </div>
-          <div className="chip-row items-center">
-            <span className="chip">Family: {summary?.family?.familyId || '-'}</span>
-          </div>
-        </div>
-      </article>
 
-      <section className="content-grid items-start">
-        <article className="panel ring-1 ring-amber-100/60">
-          <h3>Step 1: Donation Details</h3>
-          <form className="stack-form" onSubmit={handlePaymentIntentSubmit}>
-            <label>
-              Transaction Type
-              <select
-                value={transactionTypeValue}
-                onChange={(event) => setPaymentForm((current) => ({ ...current, transactionType: event.target.value }))}
+          {error && (
+            <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 dark:bg-red-950/50 dark:text-red-200">
+              {error}
+            </p>
+          )}
+        </Card>
+
+        <Card>
+          <h2 className="font-serif text-2xl text-orange-900 dark:text-orange-100">Payment Options</h2>
+          <div className="mt-4 grid gap-2">
+            {paymentDisplayLabels.map((method) => (
+              <div
+                key={method}
+                className="rounded-xl border border-orange-200 bg-orange-50/70 px-4 py-3 text-sm font-semibold text-orange-900 dark:border-orange-900/40 dark:bg-zinc-800 dark:text-orange-100"
               >
-                {transactionTypes.map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Fund Category
-              <select
-                value={fundCategoryValue}
-                onChange={(event) => setPaymentForm((current) => ({ ...current, fundCategory: event.target.value }))}
-              >
-                {fundCategories.map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Amount (INR)
-              <input
-                type="number"
-                min="1"
-                value={paymentForm.amount}
-                onChange={(event) => setPaymentForm((current) => ({ ...current, amount: event.target.value }))}
-              />
-            </label>
-            <label>
-              Linked Pending Pledge
-              <select
-                value={paymentForm.linkedTransactionId}
-                onChange={(event) => {
-                  const linkedId = event.target.value
-                  const linked = (summary?.pendingPledges || []).find((item) => item.id === linkedId)
-                  setPaymentForm((current) => ({
-                    ...current,
-                    linkedTransactionId: linkedId,
-                    amount: linked ? String(linked.amount) : current.amount,
-                  }))
-                }}
-              >
-                <option value="">No linked pledge</option>
-                {(summary?.pendingPledges || []).map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.id} - {formatCurrency(item.amount)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Payment Mode
-              <select
-                value={paymentGatewayValue}
-                onChange={(event) => setPaymentForm((current) => ({ ...current, gateway: event.target.value }))}
-              >
-                {(userData.paymentGateways || []).map((gateway) => (
-                  <option key={gateway} value={gateway}>{gateway}</option>
-                ))}
-              </select>
-            </label>
-            <button className="w-full sm:w-auto" type="submit" disabled={working}>Go Ahead</button>
-          </form>
-
-          {latestInstructions && (
-            <div className="instruction-box donation-step-box space-y-1">
-              <h4>Step 2: Payment Options</h4>
-              <strong>Payment ID: {latestInstructions.paymentId}</strong>
-              <p><strong>Transaction:</strong> {latestInstructions.transactionType || '-'}</p>
-              <p><strong>Fund:</strong> {latestInstructions.fundCategory || '-'}</p>
-              <p><strong>Amount:</strong> {formatCurrency(latestInstructions.amount)}</p>
-              <p>Preferred: {latestInstructions.preferredGateway || '-'}</p>
-
-              {latestInstructions.upiLink ? (
-                <>
-                  <p><strong>Choose UPI App:</strong></p>
-                  <div className="payment-option-grid">
-                    {upiAppLinks.map((option) => (
-                      <a key={option.label} className="payment-option-link" href={option.href}>{option.label}</a>
-                    ))}
-                  </div>
-                  <p><strong>UPI Intent:</strong> {latestInstructions.upiLink}</p>
-                  {isDesktop && latestInstructions.upiQrDataUrl ? (
-                    <img src={latestInstructions.upiQrDataUrl} alt="UPI QR" className="qr-preview mx-auto sm:mx-0" />
-                  ) : (
-                    <p>Mobile device detected. UPI app buttons use karke payment complete karein.</p>
-                  )}
-                </>
-              ) : (
-                <p>UPI is not configured for this mandir.</p>
-              )}
-
-              {latestInstructions.bankTransfer ? (
-                <>
-                  <p><strong>Bank:</strong> {latestInstructions.bankTransfer.bankName || '-'}</p>
-                  <p><strong>A/C:</strong> {latestInstructions.bankTransfer.accountNumber || '-'}</p>
-                  <p><strong>IFSC:</strong> {latestInstructions.bankTransfer.ifsc || '-'}</p>
-                  <p><strong>Payee:</strong> {latestInstructions.bankTransfer.payeeName || '-'}</p>
-                </>
-              ) : (
-                <p>Bank transfer details are not configured for this mandir.</p>
-              )}
-
-              <div className="process-note">
-                <p><strong>Step 3:</strong> Payment hone ke baad niche UTR proof submit karein.</p>
-                <p><strong>Step 4:</strong> Admin UTR verify karega; successful verify par WhatsApp receipt bheji jayegi.</p>
+                {method}
               </div>
+            ))}
+          </div>
+
+          <div className="mt-4 rounded-xl border border-orange-100 bg-white p-4 text-sm dark:border-orange-900/40 dark:bg-zinc-800/70">
+            <p className="font-semibold text-zinc-800 dark:text-zinc-100">Backend Gateway Modes</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-zinc-600 dark:text-zinc-300">
+              {paymentGateways.map((gateway) => (
+                <li key={gateway}>{gateway}</li>
+              ))}
+            </ul>
+            {paymentPortal?.upiVpa && (
+              <p className="mt-2 text-xs text-orange-700 dark:text-orange-300">UPI VPA: {paymentPortal.upiVpa}</p>
+            )}
+          </div>
+
+          <div className="mt-6 rounded-xl border border-orange-100 bg-white p-4 dark:border-orange-900/40 dark:bg-zinc-800/70">
+            <h3 className="font-semibold text-zinc-800 dark:text-zinc-100">Donation History Preview</h3>
+            {donationHistoryPreview.length === 0 ? (
+              <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">No donation records yet.</p>
+            ) : (
+              <ul className="mt-3 space-y-2 text-sm">
+                {donationHistoryPreview.map((donation) => (
+                  <li key={donation.id} className="flex items-center justify-between gap-3">
+                    <span className="text-zinc-700 dark:text-zinc-200">{donation.purpose}</span>
+                    <span className="font-bold text-orange-800 dark:text-orange-200">
+                      {formatCurrency(donation.amount)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {pendingPaymentIntents.length > 0 && (
+            <div className="mt-4 rounded-xl border border-orange-100 bg-orange-50/60 p-4 text-sm dark:border-orange-900/40 dark:bg-zinc-800/70">
+              <p className="font-semibold text-orange-900 dark:text-orange-200">Pending / Submitted Payment Intents</p>
+              <p className="mt-1 text-zinc-700 dark:text-zinc-300">{pendingPaymentIntents.length} item(s)</p>
             </div>
           )}
-        </article>
+        </Card>
+      </div>
 
-        <article className="panel ring-1 ring-amber-100/60">
-          <h3>Submit Payment Proof</h3>
-          <form className="stack-form" onSubmit={handleProofSubmit}>
-            <label>
-              Payment Intent
-              <select
-                value={paymentIdValue}
-                onChange={(event) => setProofForm((current) => ({ ...current, paymentId: event.target.value }))}
-              >
-                {(summary?.paymentIntents || [])
-                  .filter((intent) => ['Pending', 'Proof Submitted'].includes(intent.status))
-                  .map((intent) => (
-                    <option key={intent.id} value={intent.id}>
-                      {intent.id} - {formatCurrency(intent.amount)}
-                    </option>
+      <Modal
+        title={needsProofSubmission ? 'Complete Your Donation' : 'Donation Submitted'}
+        open={isConfirmationOpen}
+        onClose={closeConfirmation}
+        disableClose={needsProofSubmission}
+      >
+        {latestDonation && (
+          <div className="space-y-4 text-sm text-zinc-700 dark:text-zinc-200">
+            <p>
+              Payment intent created for{' '}
+              <strong className="text-orange-800 dark:text-orange-200">{formatCurrency(latestDonation.amount)}</strong>.
+            </p>
+            <p><strong>Purpose:</strong> {latestDonation.purpose}</p>
+            <p><strong>Gateway:</strong> {latestDonation.paymentMethod}</p>
+            <p><strong>Date:</strong> {formatDate(latestDonation.date)}</p>
+
+            {latestDonation.instructions?.upiLink && (
+              <div className="space-y-3 rounded-xl border border-orange-200 bg-orange-50/70 p-4 dark:border-orange-900/40 dark:bg-zinc-800/80">
+                <p className="font-semibold text-orange-900 dark:text-orange-200">UPI Payment</p>
+                <p>Choose a UPI app below to continue payment.</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {upiPaymentOptions.map((option) => (
+                    <a
+                      key={option.id}
+                      href={option.href}
+                      className="focus-ring rounded-lg border border-orange-300 bg-white px-3 py-2 text-center font-semibold text-orange-900 transition hover:bg-orange-100 dark:border-orange-800 dark:bg-zinc-900 dark:text-orange-200 dark:hover:bg-zinc-700"
+                    >
+                      {option.label}
+                    </a>
                   ))}
-              </select>
-            </label>
-            <label>
-              UTR / Bank Reference
-              <input
-                value={proofForm.payerUtr}
-                onChange={(event) => setProofForm((current) => ({ ...current, payerUtr: event.target.value }))}
-              />
-            </label>
-            <label>
-              Payer Name
-              <input
-                value={proofForm.payerName}
-                onChange={(event) => setProofForm((current) => ({ ...current, payerName: event.target.value }))}
-              />
-            </label>
-            <button className="w-full sm:w-auto" type="submit" disabled={working}>Submit Proof</button>
-          </form>
-
-          <div className="table-wrap rounded-xl">
-            <table>
-              <thead>
-                <tr>
-                  <th>Payment ID</th>
-                  <th>Amount</th>
-                  <th>Transaction</th>
-                  <th>Fund</th>
-                  <th>Mode</th>
-                  <th>Status</th>
-                  <th>UTR</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(summary?.paymentIntents || []).length === 0 && (
-                  <tr><td colSpan="7">No payment intents created yet.</td></tr>
+                </div>
+                {platformFlags.isDesktop && latestDonation.instructions?.upiQrDataUrl && (
+                  <div className="rounded-lg border border-orange-200 bg-white p-3 text-center dark:border-orange-900/40 dark:bg-zinc-900">
+                    <p className="mb-2 font-semibold text-zinc-800 dark:text-zinc-100">Scan QR from your UPI app</p>
+                    <img
+                      src={latestDonation.instructions.upiQrDataUrl}
+                      alt="UPI payment QR code"
+                      className="mx-auto h-56 w-56 rounded-lg border border-orange-100 bg-white p-2 dark:border-orange-900/40"
+                    />
+                  </div>
                 )}
-                {(summary?.paymentIntents || []).map((intent) => (
-                  <tr key={intent.id}>
-                    <td>{intent.id}</td>
-                    <td>{formatCurrency(intent.amount)}</td>
-                    <td>{intent.transactionType || '-'}</td>
-                    <td>{intent.fundCategory || '-'}</td>
-                    <td>{intent.gateway}</td>
-                    <td>{intent.status}</td>
-                    <td>{intent.payerUtr || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </article>
-      </section>
+                <p className="break-all rounded-lg bg-white px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
+                  UPI Link: {latestDonation.instructions.upiLink}
+                </p>
+              </div>
+            )}
 
-      <article className="panel ring-1 ring-amber-100/60">
-        <h3>Receipts</h3>
-        <div className="table-wrap rounded-xl">
-          <table>
-            <thead>
-              <tr>
-                <th>Transaction</th>
-                <th>Fund</th>
-                <th>Amount</th>
-                <th>Date</th>
-                <th>Receipt</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(summary?.receipts || []).length === 0 && (
-                <tr><td colSpan="5">No receipts available yet.</td></tr>
+            {latestDonation.instructions?.bankTransfer && (
+              <div className="rounded-lg bg-white px-3 py-2 dark:bg-zinc-800">
+                <p className="font-semibold">Bank Transfer</p>
+                <p>{latestDonation.instructions.bankTransfer.payeeName}</p>
+                <p>{latestDonation.instructions.bankTransfer.bankName}</p>
+                <p>A/C: {latestDonation.instructions.bankTransfer.accountNumber}</p>
+                <p>IFSC: {latestDonation.instructions.bankTransfer.ifsc}</p>
+              </div>
+            )}
+
+            <form
+              className="space-y-3 rounded-xl border border-orange-200 bg-white p-4 dark:border-orange-900/40 dark:bg-zinc-800/80"
+              onSubmit={handleProofSubmit}
+            >
+              <p className="font-semibold text-zinc-800 dark:text-zinc-100">Submit Proof of Payment (Required)</p>
+              <p className="text-xs text-zinc-600 dark:text-zinc-300">
+                After payment, enter your payer name and UTR / transaction reference.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="space-y-1">
+                  <span className="block text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">Payer Name</span>
+                  <input
+                    value={proofForm.payerName}
+                    onChange={(event) => setProofForm((current) => ({ ...current, payerName: event.target.value }))}
+                    className="focus-ring w-full rounded-lg border border-orange-200 bg-white px-3 py-2 dark:border-orange-900/40 dark:bg-zinc-900"
+                    placeholder="Name used during payment"
+                    required
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="block text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">UTR / Txn ID</span>
+                  <input
+                    value={proofForm.payerUtr}
+                    onChange={(event) => setProofForm((current) => ({ ...current, payerUtr: event.target.value }))}
+                    className="focus-ring w-full rounded-lg border border-orange-200 bg-white px-3 py-2 dark:border-orange-900/40 dark:bg-zinc-900"
+                    placeholder="Enter UTR or reference number"
+                    minLength={8}
+                    required
+                  />
+                </label>
+              </div>
+
+              {proofError && (
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 dark:bg-red-950/50 dark:text-red-200">
+                  {proofError}
+                </p>
               )}
-              {(summary?.receipts || []).map((receipt) => (
-                <tr key={receipt.transactionId}>
-                  <td>{receipt.transactionId}</td>
-                  <td>{receipt.fundCategory}</td>
-                  <td>{formatCurrency(receipt.amount)}</td>
-                  <td>{formatDate(receipt.paidAt)}</td>
-                  <td>
-                    {receipt.receiptPath ? (
-                      <a href={toAbsoluteUrl(receipt.receiptPath)} target="_blank" rel="noreferrer">View</a>
-                    ) : (
-                      '-'
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </article>
-    </section>
+
+              {proofSuccess && (
+                <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200">
+                  {proofSuccess}
+                </p>
+              )}
+
+              {!latestDonation.proofSubmitted && (
+                <button
+                  type="submit"
+                  className="focus-ring rounded-lg bg-gradient-to-r from-orange-600 to-amber-500 px-4 py-2 font-semibold text-white transition hover:brightness-105"
+                >
+                  Submit Proof
+                </button>
+              )}
+
+              {latestDonation.proofSubmitted && (
+                <button
+                  type="button"
+                  onClick={closeConfirmation}
+                  className="focus-ring rounded-lg border border-orange-300 px-4 py-2 font-semibold text-orange-900 dark:border-orange-800 dark:text-orange-200"
+                >
+                  Close
+                </button>
+              )}
+            </form>
+          </div>
+        )}
+      </Modal>
+    </div>
   )
 }

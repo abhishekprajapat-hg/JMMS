@@ -1,75 +1,51 @@
-import { useEffect, useState } from 'react'
-import { apiRequest, formatCurrency } from '../api'
-import { usePortal } from '../context/usePortal'
+import { Card } from '../components/Card'
+import { PageHeader } from '../components/PageHeader'
 
-function getInitialState() {
-  return {
-    mandirProfile: {},
-    donationSnapshot: { totalAmount: 0, donationCount: 0, supporterFamilies: 0 },
-  }
-}
+const sections = [
+  {
+    title: 'Our Vision',
+    text: 'To nurture a spiritual ecosystem rooted in ahimsa, anekant, compassion, and disciplined daily practice.',
+  },
+  {
+    title: 'Temple Activities',
+    text: 'Daily aarti, pravachan sessions, pathshala for children, and festival seva drives throughout the year.',
+  },
+  {
+    title: 'Community Programs',
+    text: 'Health camps, youth volunteering, eco-friendly initiatives, and support for senior devotees.',
+  },
+  {
+    title: 'Seva Timings',
+    text: 'Morning Darshan: 6:00 AM - 11:00 AM | Evening Darshan: 5:00 PM - 9:00 PM',
+  },
+]
 
 export function AboutMandirPage() {
-  const { mandirs, showNotice } = usePortal()
-  const [loading, setLoading] = useState(true)
-  const [data, setData] = useState(getInitialState)
-
-  const selectedMandir = mandirs[0] || null
-
-  useEffect(() => {
-    let isMounted = true
-
-    async function load() {
-      setLoading(true)
-      try {
-        const response = await apiRequest('/public/home')
-        if (isMounted) {
-          setData(response)
-        }
-      } catch (error) {
-        showNotice('error', error.message)
-      } finally {
-        if (isMounted) {
-          setLoading(false)
-        }
-      }
-    }
-
-    load()
-    return () => {
-      isMounted = false
-    }
-  }, [showNotice])
-
   return (
-    <section className="panel ring-1 ring-amber-100/60">
-      <div className="panel-head space-y-1">
-        <h2>About Mandir</h2>
-        <p>Mandir profile and public contribution highlights.</p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Temple Information"
+        title="About Mandir"
+        description="Learn about our spiritual values, daily activities, and community seva initiatives."
+      />
 
-      <div className="about-grid items-start">
-        <article className="backdrop-blur-sm">
-          <h3>{data.mandirProfile?.name || selectedMandir?.name || '-'}</h3>
-          <p>{data.mandirProfile?.address || selectedMandir?.address || '-'}</p>
-          <p>PAN: {data.mandirProfile?.pan || '-'}</p>
-          <p>80G: {data.mandirProfile?.reg80G || '-'}</p>
-          <p>Trust No: {data.mandirProfile?.trustNumber || '-'}</p>
-        </article>
+      <Card className="overflow-hidden p-0">
+        <img
+          src="https://images.unsplash.com/photo-1593693397690-362cb9666fc2?auto=format&fit=crop&w=1400&q=80"
+          alt="Temple prayer hall"
+          className="h-64 w-full object-cover sm:h-80"
+        />
+      </Card>
 
-        <article className="backdrop-blur-sm">
-          <h3>Contribution Snapshot</h3>
-          {loading ? (
-            <p>Loading profile data...</p>
-          ) : (
-            <>
-              <p>Total Donations: <strong>{formatCurrency(data.donationSnapshot?.totalAmount || 0)}</strong></p>
-              <p>Donation Count: <strong>{data.donationSnapshot?.donationCount || 0}</strong></p>
-              <p>Supporter Families: <strong>{data.donationSnapshot?.supporterFamilies || 0}</strong></p>
-            </>
-          )}
-        </article>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {sections.map((section) => (
+          <Card key={section.title}>
+            <h2 className="font-serif text-2xl text-orange-900 dark:text-orange-100">{section.title}</h2>
+            <p className="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">{section.text}</p>
+          </Card>
+        ))}
       </div>
-    </section>
+    </div>
   )
 }
+

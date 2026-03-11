@@ -1,20 +1,44 @@
 const { MANDIR_PROFILE } = require('../constants/domain')
 const { DEFAULT_MANDIR_ID } = require('../constants/tenant')
-const { toISODate } = require('../utils/date')
 const { hashPassword } = require('../utils/passwords')
 
-function shiftDate(days, timeZone) {
-  const value = new Date()
-  value.setDate(value.getDate() + days)
-  return toISODate(value, timeZone)
-}
+const MOCK_SEED_RECORD_IDS = Object.freeze({
+  devoteeUsers: ['DVT-0001'],
+  devoteeAffiliations: ['AFF-0001'],
+  transactions: ['TRX-1001', 'TRX-1002'],
+  paymentIntents: ['PAY-7001'],
+  contentLibrary: ['CNT-5001', 'CNT-5002', 'CNT-5003'],
+  expenses: ['EXP-4001', 'EXP-4002'],
+  events: ['EVT-2001'],
+  eventRegistrations: ['REG-3001'],
+  assets: ['AST-101', 'AST-102', 'AST-103'],
+  assetCheckouts: ['CHK-501', 'CHK-502'],
+  poojaBookings: ['POO-9001'],
+})
 
-function withMandir(items, mandirId) {
-  return items.map((item) => ({
-    ...item,
-    mandirId,
-  }))
-}
+const MOCK_SEED_FAMILIES = Object.freeze([
+  {
+    familyId: 'FAM-0001',
+    headName: 'Amit Jain',
+    gotra: 'Kashyap',
+    whatsapp: '+916263578372',
+    address: 'Bapu Nagar, Jaipur',
+  },
+  {
+    familyId: 'FAM-0002',
+    headName: 'Neha Shah',
+    gotra: 'Vatsa',
+    whatsapp: '+919899001122',
+    address: 'Malviya Nagar, Jaipur',
+  },
+  {
+    familyId: 'FAM-0003',
+    headName: 'Pratik Doshi',
+    gotra: 'Bharadwaj',
+    whatsapp: '+919955443322',
+    address: 'Shastri Nagar, Jaipur',
+  },
+])
 
 function getBootstrapValue(name, fallback) {
   const value = String(process.env[name] || '').trim()
@@ -22,6 +46,7 @@ function getBootstrapValue(name, fallback) {
 }
 
 function buildSeedData({ timeZone }) {
+  const now = new Date().toISOString()
   const mandirId = DEFAULT_MANDIR_ID
   const superAdminUsername = getBootstrapValue('BOOTSTRAP_SUPER_ADMIN_USERNAME', 'superadmin').toLowerCase()
   const superAdminPassword = getBootstrapValue('BOOTSTRAP_SUPER_ADMIN_PASSWORD', 'SuperAdmin@2026')
@@ -38,7 +63,7 @@ function buildSeedData({ timeZone }) {
 
   return {
     version: 1,
-    createdAt: new Date().toISOString(),
+    createdAt: now,
     mandirs: [
       {
         id: mandirId,
@@ -50,7 +75,7 @@ function buildSeedData({ timeZone }) {
         letterhead: MANDIR_PROFILE.letterhead,
         timezone: timeZone || 'Asia/Kolkata',
         isActive: true,
-        createdAt: new Date().toISOString(),
+        createdAt: now,
       },
     ],
     mandirProfile: { ...MANDIR_PROFILE },
@@ -88,309 +113,110 @@ function buildSeedData({ timeZone }) {
         mandirId,
       },
     ],
-    devoteeUsers: [
-      {
-        id: 'DVT-0001',
-        familyId: 'FAM-0001',
-        fullName: 'Amit Jain',
-        email: 'amit.jain@example.org',
-        whatsapp: '+916263578372',
-        passwordHash: hashPassword('devotee123'),
-        createdAt: new Date().toISOString(),
-        lastLoginAt: '',
-        status: 'active',
-        mandirId,
-      },
-    ],
-    devoteeAffiliations: [
-      {
-        id: 'AFF-0001',
-        devoteeUserId: 'DVT-0001',
-        mandirId,
-        familyId: 'FAM-0001',
-        isPrimary: true,
-        joinedAt: new Date().toISOString(),
-        status: 'active',
-      },
-    ],
-    families: withMandir(
-      [
-        {
-          familyId: 'FAM-0001',
-          headName: 'Amit Jain',
-          gotra: 'Kashyap',
-          whatsapp: '+916263578372',
-          address: 'Bapu Nagar, Jaipur',
-        },
-        {
-          familyId: 'FAM-0002',
-          headName: 'Neha Shah',
-          gotra: 'Vatsa',
-          whatsapp: '+919899001122',
-          address: 'Malviya Nagar, Jaipur',
-        },
-        {
-          familyId: 'FAM-0003',
-          headName: 'Pratik Doshi',
-          gotra: 'Bharadwaj',
-          whatsapp: '+919955443322',
-          address: 'Shastri Nagar, Jaipur',
-        },
-      ],
-      mandirId,
-    ),
-    transactions: withMandir(
-      [
-        {
-          id: 'TRX-1001',
-          familyId: 'FAM-0001',
-          type: 'Bhent',
-          fundCategory: 'Mandir Nirman',
-          status: 'Paid',
-          amount: 5100,
-          createdAt: `${shiftDate(-2, timeZone)}T09:15:00.000Z`,
-          dueDate: '',
-          paidAt: `${shiftDate(-2, timeZone)}T09:15:00.000Z`,
-          cancelled: false,
-          receiptPath: '',
-          receiptFileName: '',
-          receiptGeneratedBy: 'System Seed',
-        },
-        {
-          id: 'TRX-1002',
-          familyId: 'FAM-0002',
-          type: 'Boli',
-          fundCategory: 'Shanti Dhara',
-          status: 'Pledged',
-          amount: 21000,
-          createdAt: `${shiftDate(-3, timeZone)}T13:25:00.000Z`,
-          dueDate: shiftDate(-1, timeZone),
-          paidAt: '',
-          cancelled: false,
-          receiptPath: '',
-          receiptFileName: '',
-          receiptGeneratedBy: '',
-        },
-      ],
-      mandirId,
-    ),
-    paymentIntents: withMandir(
-      [
-        {
-          id: 'PAY-7001',
-          familyId: 'FAM-0002',
-          linkedTransactionId: 'TRX-1002',
-          amount: 21000,
-          gateway: 'Direct UPI (No Commission)',
-          status: 'Proof Submitted',
-          initiatedAt: `${shiftDate(-1, timeZone)}T08:10:00.000Z`,
-          reconciledAt: '',
-          providerReference: '',
-          failureReason: '',
-          createdBy: 'Shri Rakesh Jain',
-          source: 'staff_console',
-          note: 'No-commission direct UPI',
-          payerUtr: '123456789012',
-          payerName: 'Neha Shah',
-          proofSubmittedAt: `${shiftDate(-1, timeZone)}T08:35:00.000Z`,
-        },
-      ],
-      mandirId,
-    ),
+    devoteeUsers: [],
+    devoteeAffiliations: [],
+    families: [],
+    transactions: [],
+    paymentIntents: [],
     paymentPortal: {
-      upiVpa: 'jmmsmandir@upi',
-      payeeName: 'Shri Jain Shwetambar Mandir',
-      bankName: 'State Bank of India',
-      accountNumber: '123456789012',
-      ifsc: 'SBIN0001234',
-      updatedAt: new Date().toISOString(),
+      upiVpa: '',
+      payeeName: MANDIR_PROFILE.name,
+      bankName: '',
+      accountNumber: '',
+      ifsc: '',
+      updatedAt: '',
       mandirId,
     },
-    contentLibrary: [
-      {
-        id: 'CNT-5001',
-        scope: 'global',
-        mandirId: '',
-        type: 'ebook',
-        title: 'Samaysar (Global Edition)',
-        description: 'Platform-level shastra library item available to all mandirs.',
-        url: 'https://example.org/ebooks/samaysar-global.pdf',
-        thumbnailUrl: '',
-        tags: ['samaysar', 'global'],
-        isPublished: true,
-        sortOrder: 5,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        createdBy: 'Platform Super Admin',
-        updatedBy: 'Platform Super Admin',
-      },
-      {
-        id: 'CNT-5002',
-        scope: 'mandir',
-        mandirId,
-        type: 'ebook',
-        title: 'Pratikraman Sutra Saar',
-        description: 'Daily pratikraman guide with transliteration and meaning.',
-        url: 'https://example.org/ebooks/pratikraman-sutra-saar.pdf',
-        thumbnailUrl: '',
-        tags: ['pratikraman', 'daily'],
-        isPublished: true,
-        sortOrder: 10,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        createdBy: 'Shri Trustee',
-        updatedBy: 'Shri Trustee',
-      },
-      {
-        id: 'CNT-5003',
-        scope: 'mandir',
-        mandirId,
-        type: 'video',
-        title: 'Samayik Vidhi Explained',
-        description: 'Step-by-step guide for samayik vidhi.',
-        url: 'https://www.youtube.com/watch?v=8lQhA9QhJYQ',
-        thumbnailUrl: '',
-        tags: ['samayik', 'vidhi'],
-        isPublished: true,
-        sortOrder: 20,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        createdBy: 'Shri Trustee',
-        updatedBy: 'Shri Trustee',
-      },
-    ],
-    expenses: withMandir(
-      [
-        {
-          id: 'EXP-4001',
-          title: 'Monthly Electricity Bill',
-          category: 'Utilities',
-          amount: 8450,
-          expenseDate: shiftDate(-4, timeZone),
-          paymentMode: 'Bank Transfer',
-          vendor: 'Jaipur Discom',
-          notes: 'Main hall and office electricity',
-          status: 'Paid',
-          createdAt: `${shiftDate(-4, timeZone)}T11:05:00.000Z`,
-          createdBy: 'Shri Trustee',
-          approvedAt: `${shiftDate(-4, timeZone)}T11:20:00.000Z`,
-          approvedBy: 'Shri Trustee',
-          paidAt: `${shiftDate(-3, timeZone)}T10:10:00.000Z`,
-        },
-        {
-          id: 'EXP-4002',
-          title: 'Pooja Samagri Purchase',
-          category: 'Pooja Samagri',
-          amount: 3200,
-          expenseDate: shiftDate(-1, timeZone),
-          paymentMode: 'Cash',
-          vendor: 'Shubh Samagri Store',
-          notes: 'Weekly consumables',
-          status: 'Pending Approval',
-          createdAt: `${shiftDate(-1, timeZone)}T15:05:00.000Z`,
-          createdBy: 'Shri Rakesh Jain',
-          approvedAt: '',
-          approvedBy: '',
-          paidAt: '',
-        },
-      ],
-      mandirId,
-    ),
-    events: withMandir(
-      [
-        {
-          id: 'EVT-2001',
-          name: 'Paryushan Mahotsav',
-          date: shiftDate(7, timeZone),
-          hall: 'Main Sabha Hall',
-          capacity: 120,
-          feePerFamily: 2100,
-          resourceRequirements: ['Sound System', 'Projector', 'Seating'],
-          notes: 'Evening pravachan and samuhik bhojan',
-          createdAt: new Date().toISOString(),
-          createdBy: 'Shri Trustee',
-        },
-      ],
-      mandirId,
-    ),
-    eventRegistrations: withMandir(
-      [
-        {
-          id: 'REG-3001',
-          eventId: 'EVT-2001',
-          familyId: 'FAM-0001',
-          seats: 4,
-          notes: 'Need front row seating for elders',
-          registeredAt: new Date().toISOString(),
-          checkedInAt: '',
-          paymentStatus: 'Pending',
-          transactionId: '',
-        },
-      ],
-      mandirId,
-    ),
+    contentLibrary: [],
+    expenses: [],
+    events: [],
+    eventRegistrations: [],
     cancellationLogs: [],
-    assets: withMandir(
-      [
-        { id: 'AST-101', name: 'Silver Chhatra', totalUnits: 2, availableUnits: 1 },
-        { id: 'AST-102', name: 'Steel Thali', totalUnits: 50, availableUnits: 44 },
-        { id: 'AST-103', name: 'PA Sound System', totalUnits: 1, availableUnits: 1 },
-      ],
-      mandirId,
-    ),
-    assetCheckouts: withMandir(
-      [
-        {
-          id: 'CHK-501',
-          assetId: 'AST-101',
-          familyId: 'FAM-0001',
-          quantity: 1,
-          expectedReturnDate: shiftDate(-1, timeZone),
-          checkedOutAt: `${shiftDate(-5, timeZone)}T10:00:00.000Z`,
-          returnedAt: '',
-          status: 'Checked Out',
-        },
-        {
-          id: 'CHK-502',
-          assetId: 'AST-102',
-          familyId: 'FAM-0002',
-          quantity: 6,
-          expectedReturnDate: shiftDate(2, timeZone),
-          checkedOutAt: `${shiftDate(-1, timeZone)}T12:45:00.000Z`,
-          returnedAt: '',
-          status: 'Checked Out',
-        },
-      ],
-      mandirId,
-    ),
-    poojaBookings: withMandir(
-      [
-        {
-          id: 'POO-9001',
-          date: shiftDate(0, timeZone),
-          slot: 'Main Kalash',
-          familyId: 'FAM-0001',
-          notes: 'Paryushan special',
-          overridden: false,
-        },
-      ],
-      mandirId,
-    ),
+    assets: [],
+    assetCheckouts: [],
+    poojaBookings: [],
     whatsappConfig: {
-      provider: 'Mock Gateway',
+      provider: 'Meta WhatsApp Cloud API',
       apiUrl: '',
       accessToken: '',
       businessNumber: '',
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
       mandirId,
     },
     whatsappLogs: [],
     globalCalendarEntries: [],
     deviceTokens: [],
+    approvalRequests: [],
+    whatsAppRetryQueue: [],
     jobs: {
       dueReminderLastRunDate: '',
+      whatsAppRetryLastRunAt: '',
+      setupCompletedAt: '',
+      nextReceiptSequence: 1,
+    },
+    auth: {
+      refreshTokens: [],
     },
   }
 }
 
-module.exports = { buildSeedData }
+function removeArrayItems(db, key, predicate) {
+  const items = Array.isArray(db[key]) ? db[key] : []
+  const filtered = items.filter((item) => !predicate(item))
+  if (filtered.length === items.length) {
+    return false
+  }
+  db[key] = filtered
+  return true
+}
+
+function matchesMockFamily(family, seedFamily) {
+  return (
+    String(family?.familyId || '') === seedFamily.familyId &&
+    String(family?.headName || '') === seedFamily.headName &&
+    String(family?.gotra || '') === seedFamily.gotra &&
+    String(family?.whatsapp || '') === seedFamily.whatsapp &&
+    String(family?.address || '') === seedFamily.address
+  )
+}
+
+function stripMockSeedData(db) {
+  if (!db || typeof db !== 'object' || Array.isArray(db)) {
+    return false
+  }
+
+  let changed = false
+  const familiesChanged = removeArrayItems(db, 'families', (family) =>
+    MOCK_SEED_FAMILIES.some((seedFamily) => matchesMockFamily(family, seedFamily)),
+  )
+  if (familiesChanged) {
+    changed = true
+  }
+
+  for (const [key, ids] of Object.entries(MOCK_SEED_RECORD_IDS)) {
+    const changedForKey = removeArrayItems(db, key, (item) => ids.includes(String(item?.id || '').trim()))
+    if (changedForKey) {
+      changed = true
+    }
+  }
+
+  const logsChanged = removeArrayItems(db, 'whatsappLogs', (log) => String(log?.status || '') === 'Mock Sent')
+  if (logsChanged) {
+    changed = true
+  }
+
+  const config = db.whatsappConfig && typeof db.whatsappConfig === 'object' ? db.whatsappConfig : {}
+  if (config !== db.whatsappConfig) {
+    db.whatsappConfig = config
+    changed = true
+  }
+  if (String(config.provider || '').trim() === 'Mock Gateway') {
+    config.provider = 'Meta WhatsApp Cloud API'
+    config.updatedAt = new Date().toISOString()
+    changed = true
+  }
+
+  return changed
+}
+
+module.exports = { buildSeedData, stripMockSeedData }

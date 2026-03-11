@@ -368,7 +368,7 @@ export function WorkspacePage() {
     const familyInfo = familyName && familyName !== '-' ? ` Family: ${familyName}.` : ''
     const phone = String(log?.phone || '').trim()
     const phoneInfo = phone && phone !== '-' ? ` WhatsApp target: ${phone}.` : ''
-    if (!log?.status || log.status === 'Mock Sent') {
+    if (!log?.status) {
       showNotice('success', `${baseMessage}${familyInfo}${phoneInfo}`)
       return
     }
@@ -957,7 +957,7 @@ export function WorkspacePage() {
 
     setWhatsAppConfig((current) => ({
       ...current,
-      provider: current.provider || whatsappProviders[0] || 'Mock Gateway',
+      provider: current.provider || whatsappProviders[0] || 'Meta WhatsApp Cloud API',
     }))
   }, [transactionTypes, fundCategories, paymentStatuses, poojaSlots, whatsappProviders])
 

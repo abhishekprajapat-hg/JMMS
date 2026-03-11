@@ -68,7 +68,7 @@ export function PoojaSchedulePage() {
 
   if (!userData) {
     return (
-      <section className="panel ring-1 ring-amber-100/60">
+      <section className="panel">
         <p>Loading pooja schedule...</p>
       </section>
     )
@@ -104,7 +104,7 @@ export function PoojaSchedulePage() {
 
   return (
     <section className="profile-stack pb-2">
-      <article className="panel ring-1 ring-amber-100/60">
+      <article className="panel">
         <div className="panel-head split gap-3">
           <div>
             <h2>Pooja Schedule</h2>
@@ -117,7 +117,7 @@ export function PoojaSchedulePage() {
       </article>
 
       <section className="content-grid items-start">
-        <article className="panel ring-1 ring-amber-100/60">
+        <article className="panel">
           <h3>Create Pooja Booking</h3>
           <form className="stack-form" onSubmit={handleBookingSubmit}>
             <label>
@@ -169,7 +169,7 @@ export function PoojaSchedulePage() {
           </form>
         </article>
 
-        <article className="panel ring-1 ring-amber-100/60">
+        <article className="panel">
           <h3>Booked Slots</h3>
           <div className="table-wrap rounded-xl">
             <table>
@@ -201,3 +201,4 @@ export function PoojaSchedulePage() {
     </section>
   )
 }
+

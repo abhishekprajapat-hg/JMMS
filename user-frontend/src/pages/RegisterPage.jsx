@@ -44,7 +44,7 @@ export function RegisterPage() {
   }
 
   return (
-    <section className="panel auth-panel ring-1 ring-amber-100/60">
+    <section className="panel auth-panel">
       <div className="panel-head space-y-1">
         <h2>Register</h2>
         <p>Create your devotee account for the mandir.</p>
@@ -113,3 +113,4 @@ export function RegisterPage() {
     </section>
   )
 }
+

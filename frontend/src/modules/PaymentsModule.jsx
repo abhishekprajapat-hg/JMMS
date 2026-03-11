@@ -221,8 +221,7 @@ export function PaymentsModule({
         const phoneInfo = phone && phone !== '-' ? ` WhatsApp target: ${phone}.` : ''
         if (
           response.whatsappLog?.status &&
-          response.whatsappLog.status !== 'Sent' &&
-          response.whatsappLog.status !== 'Mock Sent'
+          response.whatsappLog.status !== 'Sent'
         ) {
           const detail = String(response.whatsappLog.detail || '').trim()
           const suffix = detail ? ` (${detail.slice(0, 160)})` : ''

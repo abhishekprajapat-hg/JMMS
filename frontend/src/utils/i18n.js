@@ -176,7 +176,6 @@ const HINDI_TEXT_MAP = Object.freeze({
   'Abhishek - Morning': 'अभिषेक - प्रातः',
   'Shanti Dhara - Evening': 'शांति धारा - सायं',
   'Main Kalash': 'मुख्य कलश',
-  'Mock Gateway': 'मॉक गेटवे',
 })
 
 const HINDI_REGEX_RULES = [

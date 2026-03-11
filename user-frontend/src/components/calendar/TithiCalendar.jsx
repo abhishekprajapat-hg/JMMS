@@ -1,0 +1,128 @@
+import { useMemo } from 'react'
+import { Card } from '../Card'
+import {
+  buildFallbackDay,
+  getMonthGrid,
+  getWeekDays,
+  toIsoDate,
+} from '../../utils/jainCalendar'
+
+const fastingBadgeClass = {
+  Upvas: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200',
+  Ayambil: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200',
+  Ekasana: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200',
+}
+
+function getCellClass({ hasFestival, isToday, isSelected }) {
+  if (isSelected) {
+    return 'border-amber-500 bg-amber-100/80 shadow-[0_10px_22px_rgba(180,83,9,0.2)] dark:border-amber-400 dark:bg-amber-950/50'
+  }
+  if (hasFestival) {
+    return 'border-amber-300 bg-gradient-to-br from-amber-50 to-orange-100/75 shadow-sm dark:border-amber-700/60 dark:from-amber-950/35 dark:to-orange-950/35'
+  }
+  if (isToday) {
+    return 'border-orange-300 bg-orange-50 dark:border-orange-700/70 dark:bg-orange-950/30'
+  }
+  return 'border-orange-100 bg-white/90 hover:border-amber-300 hover:bg-amber-50/60 dark:border-orange-900/35 dark:bg-zinc-900/85 dark:hover:border-amber-700/60 dark:hover:bg-amber-950/20'
+}
+
+export function TithiCalendar({
+  activeMonth,
+  recordsByDate,
+  selectedDate,
+  onChangeMonth,
+  onSelectDay,
+  isLoading = false,
+  error = '',
+}) {
+  const monthGrid = useMemo(() => getMonthGrid(activeMonth), [activeMonth])
+  const weekDays = getWeekDays()
+  const todayIso = toIsoDate(new Date())
+
+  return (
+    <Card className="border-amber-200/90 bg-gradient-to-br from-white via-orange-50/55 to-amber-100/50 dark:border-amber-800/45 dark:from-zinc-900 dark:via-zinc-900 dark:to-amber-950/20">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => onChangeMonth(-1)}
+          className="focus-ring rounded-full border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-50 dark:border-amber-700/70 dark:text-amber-200 dark:hover:bg-zinc-800"
+        >
+          Previous
+        </button>
+
+        <h2 className="font-serif text-3xl text-orange-900 dark:text-amber-100">
+          {activeMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+        </h2>
+
+        <button
+          type="button"
+          onClick={() => onChangeMonth(1)}
+          className="focus-ring rounded-full border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-50 dark:border-amber-700/70 dark:text-amber-200 dark:hover:bg-zinc-800"
+        >
+          Next
+        </button>
+      </div>
+      {isLoading && (
+        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.13em] text-orange-700 dark:text-orange-300">
+          Loading month Panchang...
+        </p>
+      )}
+      {error && (
+        <p className="mb-3 text-xs font-semibold text-red-700 dark:text-red-300">{error}</p>
+      )}
+
+      <div className="overflow-x-auto">
+        <div className="min-w-[680px]">
+          <div className="grid grid-cols-7 gap-2 text-center text-[11px] font-bold uppercase tracking-[0.14em] text-orange-700 dark:text-orange-300">
+            {weekDays.map((weekDay) => (
+              <div key={weekDay} className="rounded-lg bg-amber-100/60 py-2 dark:bg-zinc-800/80">
+                {weekDay}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-3 grid grid-cols-7 gap-2">
+            {monthGrid.map((dateCell, index) => {
+              if (!dateCell) {
+                return (
+                  <div
+                    key={`empty-${index}`}
+                    className="h-28 rounded-xl border border-dashed border-amber-200/75 bg-white/35 dark:border-amber-900/30 dark:bg-zinc-900/30"
+                  />
+                )
+              }
+
+              const isoDate = toIsoDate(dateCell)
+              const dayData = recordsByDate.get(isoDate) || buildFallbackDay(dateCell)
+              const hasFestival = Boolean(dayData?.festival)
+              const fasting = dayData?.fasting || ''
+              const isToday = isoDate === todayIso
+              const isSelected = isoDate === selectedDate
+
+              return (
+                <button
+                  type="button"
+                  key={isoDate}
+                  onClick={() => onSelectDay(dayData)}
+                  className={`focus-ring h-28 rounded-xl border p-2 text-left transition ${getCellClass({ hasFestival, isToday, isSelected })}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{dateCell.getDate()}</span>
+                    {hasFestival && <span className="h-2.5 w-2.5 rounded-full bg-amber-500 shadow-sm" aria-hidden="true" />}
+                  </div>
+                  <p className="mt-1 line-clamp-1 text-xs font-semibold text-orange-900 dark:text-orange-100">{dayData?.tithi || '-'}</p>
+                  <p className="line-clamp-1 text-[11px] text-zinc-600 dark:text-zinc-300">{dayData?.festival || 'No festival'}</p>
+                  {fasting ? (
+                    <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${fastingBadgeClass[fasting] || 'border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200'}`}>
+                      {fasting}
+                    </span>
+                  ) : null}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </Card>
+  )
+}

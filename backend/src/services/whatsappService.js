@@ -198,20 +198,20 @@ async function sendWhatsAppTemplate({
   }
 
   const dispatchUrl = resolveDispatchUrl(config)
-  if (config.provider === 'Mock Gateway' || (!dispatchUrl && config.provider !== 'Meta WhatsApp Cloud API')) {
-    const mockLog = createLog({
+  if (!dispatchUrl && config.provider !== 'Meta WhatsApp Cloud API') {
+    const skippedLog = createLog({
       templateType,
       trigger,
       transactionId: transaction.id,
       familyName,
       phone,
-      status: 'Mock Sent',
-      detail: message,
+      status: 'Skipped',
+      detail: `Provider ${config.provider || '-'} is not configured with a dispatch URL.`,
       initiatedBy,
       attempt,
       mandirId: transactionMandirId,
     })
-    db.whatsappLogs.unshift(mockLog)
+    db.whatsappLogs.unshift(skippedLog)
     removeRetryQueueItems(db, {
       queueId,
       transactionId: transaction.id,
@@ -219,7 +219,7 @@ async function sendWhatsAppTemplate({
       mandirId: transactionMandirId,
     })
     await saveDb()
-    return mockLog
+    return skippedLog
   }
 
   try {
