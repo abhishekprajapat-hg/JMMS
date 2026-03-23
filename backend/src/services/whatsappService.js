@@ -2,6 +2,7 @@ const { getDb, saveDb } = require('../store/db')
 const { createId } = require('../utils/ids')
 const { formatInr } = require('../utils/format')
 const { toISODate } = require('../utils/date')
+const { isPlaceholderMetaTemplateName } = require('../utils/whatsappTemplates')
 const { env } = require('../config/env')
 const { getRecordMandirId, DEFAULT_MANDIR_ID } = require('./tenantService')
 
@@ -168,10 +169,14 @@ async function sendWhatsAppTemplate({
       : buildPledgeReminderMessage(transaction, familyName)
   const metaTemplateName =
     templateType === 'instant_receipt' ? env.whatsappTemplateInstantReceipt : env.whatsappTemplatePledgeReminder
+  const normalizedMetaTemplateName = String(metaTemplateName || '').trim()
+  const metaTemplateModeEnabled =
+    config.provider === 'Meta WhatsApp Cloud API' && env.whatsappUseTemplateForReceipts
+  const metaTemplateMissing = metaTemplateModeEnabled && !normalizedMetaTemplateName
+  const metaTemplatePlaceholder =
+    metaTemplateModeEnabled && isPlaceholderMetaTemplateName(normalizedMetaTemplateName)
   const shouldUseMetaTemplate =
-    config.provider === 'Meta WhatsApp Cloud API' &&
-    env.whatsappUseTemplateForReceipts &&
-    String(metaTemplateName || '').trim().length > 0
+    metaTemplateModeEnabled && normalizedMetaTemplateName.length > 0 && !metaTemplatePlaceholder
 
   if (!phone) {
     const skipped = createLog({
@@ -195,6 +200,33 @@ async function sendWhatsAppTemplate({
     })
     await saveDb()
     return skipped
+  }
+
+  if (metaTemplateMissing || metaTemplatePlaceholder) {
+    const configIssue = metaTemplateMissing
+      ? 'Meta template mode is enabled, but no approved template name is configured.'
+      : `Configured template "${normalizedMetaTemplateName}" is Meta's sample placeholder and cannot be used for live receipts.`
+    const skippedLog = createLog({
+      templateType,
+      trigger,
+      transactionId: transaction.id,
+      familyName,
+      phone,
+      status: 'Skipped',
+      detail: `${configIssue} Update the WhatsApp template settings before sending receipt notifications.`,
+      initiatedBy,
+      attempt,
+      mandirId: transactionMandirId,
+    })
+    db.whatsappLogs.unshift(skippedLog)
+    removeRetryQueueItems(db, {
+      queueId,
+      transactionId: transaction.id,
+      templateType,
+      mandirId: transactionMandirId,
+    })
+    await saveDb()
+    return skippedLog
   }
 
   const dispatchUrl = resolveDispatchUrl(config)

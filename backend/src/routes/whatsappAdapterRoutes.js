@@ -3,6 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { env } = require('../config/env')
 const { badRequest } = require('../utils/http')
+const { isPlaceholderMetaTemplateName } = require('../utils/whatsappTemplates')
 
 const router = express.Router()
 const BACKEND_ENV_PATH = path.resolve(__dirname, '../../.env')
@@ -156,6 +157,9 @@ router.post('/send', async (req, res, next) => {
     }
     if (useTemplate && !templateName) {
       throw badRequest('Template name is required when template mode is enabled.')
+    }
+    if (useTemplate && isPlaceholderMetaTemplateName(templateName)) {
+      throw badRequest('Meta sample template "hello_world" cannot be used for live notifications.')
     }
 
     const url = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`
