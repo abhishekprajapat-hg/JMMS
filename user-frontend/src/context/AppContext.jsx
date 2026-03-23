@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { apiRequest, toAbsoluteUrl } from '../api'
+import { pickByLanguage } from '../utils/i18n'
 
 const AppContext = createContext(null)
 
@@ -8,6 +9,7 @@ const STORAGE_KEYS = {
   sessionToken: 'jmms_devotee_token_v3',
   darkMode: 'jmms_dark_mode_v3',
   userPrefs: 'jmms_user_prefs_v3',
+  language: 'jmms_language_v1',
 }
 
 const DEFAULT_PAYMENT_GATEWAYS = [
@@ -107,6 +109,7 @@ function mapDonationItem(transaction) {
 
 export function AppProvider({ children }) {
   const [sessionToken, setSessionToken] = useState(() => window.localStorage.getItem(STORAGE_KEYS.sessionToken) || '')
+  const [language, setLanguage] = useState(() => (window.localStorage.getItem(STORAGE_KEYS.language) === 'hi' ? 'hi' : 'en'))
   const [userData, setUserData] = useState(null)
   const [working, setWorking] = useState(false)
   const [darkMode, setDarkMode] = useState(() => {
@@ -192,6 +195,13 @@ export function AppProvider({ children }) {
   }, [darkMode])
 
   useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEYS.language, language)
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = language
+    }
+  }, [language])
+
+  useEffect(() => {
     window.localStorage.setItem(STORAGE_KEYS.userPrefs, JSON.stringify(userPrefs))
   }, [userPrefs])
 
@@ -205,6 +215,10 @@ export function AppProvider({ children }) {
       applyThemeToDocument(nextValue)
       return nextValue
     })
+  }
+
+  function toggleLanguage() {
+    setLanguage((previous) => (previous === 'hi' ? 'en' : 'hi'))
   }
 
   const loadHomeData = useCallback(async () => {
@@ -292,7 +306,13 @@ export function AppProvider({ children }) {
       setSessionToken(token)
       const normalized = normalizeUserPayload(response)
       setUserData(normalized)
-      return { ok: true, message: 'Login successful.' }
+      return {
+        ok: true,
+        message: pickByLanguage(language, {
+          en: 'Login successful.',
+          hi: 'लॉगिन सफल रहा।',
+        }),
+      }
     } catch (error) {
       return { ok: false, message: error.message }
     } finally {
@@ -318,7 +338,13 @@ export function AppProvider({ children }) {
       setSessionToken(token)
       const normalized = normalizeUserPayload(response)
       setUserData(normalized)
-      return { ok: true, message: 'Account created successfully.' }
+      return {
+        ok: true,
+        message: pickByLanguage(language, {
+          en: 'Account created successfully.',
+          hi: 'खाता सफलतापूर्वक बन गया।',
+        }),
+      }
     } catch (error) {
       return { ok: false, message: error.message }
     } finally {
@@ -335,12 +361,18 @@ export function AppProvider({ children }) {
     if (!String(email || '').trim()) {
       return {
         ok: false,
-        message: 'Please enter a valid email address.',
+        message: pickByLanguage(language, {
+          en: 'Please enter a valid email address.',
+          hi: 'कृपया सही ईमेल पता दर्ज करें।',
+        }),
       }
     }
     return {
       ok: false,
-      message: 'Password reset API is not available yet. Please contact mandir support.',
+      message: pickByLanguage(language, {
+        en: 'Password reset API is not available yet. Please contact mandir support.',
+        hi: 'पासवर्ड रीसेट API अभी उपलब्ध नहीं है। कृपया मंदिर सहायता से संपर्क करें।',
+      }),
     }
   }
 
@@ -348,7 +380,10 @@ export function AppProvider({ children }) {
     if (!sessionToken) {
       return {
         ok: false,
-        message: 'Please login before making a donation.',
+        message: pickByLanguage(language, {
+          en: 'Please login before making a donation.',
+          hi: 'दान करने से पहले कृपया लॉगिन करें।',
+        }),
       }
     }
 
@@ -410,14 +445,20 @@ export function AppProvider({ children }) {
     if (!sessionToken) {
       return {
         ok: false,
-        message: 'Please login before submitting payment proof.',
+        message: pickByLanguage(language, {
+          en: 'Please login before submitting payment proof.',
+          hi: 'पेमेंट प्रमाण जमा करने से पहले कृपया लॉगिन करें।',
+        }),
       }
     }
 
     if (!String(paymentId || '').trim()) {
       return {
         ok: false,
-        message: 'Missing payment intent ID for proof submission.',
+        message: pickByLanguage(language, {
+          en: 'Missing payment intent ID for proof submission.',
+          hi: 'प्रमाण जमा करने के लिए पेमेंट इंटेंट ID नहीं मिली।',
+        }),
       }
     }
 
@@ -448,10 +489,19 @@ export function AppProvider({ children }) {
 
   function toggleSavedEbook(bookId) {
     if (!currentUser?.id) {
-      return { ok: false, message: 'Please login to save books.' }
+      return {
+        ok: false,
+        message: pickByLanguage(language, {
+          en: 'Please login to save books.',
+          hi: 'किताबें सेव करने के लिए कृपया लॉगिन करें।',
+        }),
+      }
     }
 
-    let nextMessage = 'Book saved to profile.'
+    let nextMessage = pickByLanguage(language, {
+      en: 'Book saved to profile.',
+      hi: 'किताब प्रोफाइल में सेव हो गई।',
+    })
     setUserPrefs((previousPrefs) => {
       const currentPrefs = previousPrefs[currentUser.id] || {}
       const currentSavedIds = Array.isArray(currentPrefs.savedEbookIds) ? currentPrefs.savedEbookIds : []
@@ -459,7 +509,15 @@ export function AppProvider({ children }) {
       const nextSavedIds = alreadySaved
         ? currentSavedIds.filter((id) => id !== bookId)
         : [...currentSavedIds, bookId]
-      nextMessage = alreadySaved ? 'Book removed from saved list.' : 'Book saved to profile.'
+      nextMessage = alreadySaved
+        ? pickByLanguage(language, {
+          en: 'Book removed from saved list.',
+          hi: 'किताब सेव सूची से हटा दी गई।',
+        })
+        : pickByLanguage(language, {
+          en: 'Book saved to profile.',
+          hi: 'किताब प्रोफाइल में सेव हो गई।',
+        })
       return {
         ...previousPrefs,
         [currentUser.id]: {
@@ -508,11 +566,14 @@ export function AppProvider({ children }) {
     pendingPaymentIntents,
     mandirProfile,
     darkMode,
+    language,
     working,
     homeData,
     homeLoading,
     homeError,
     toggleDarkMode,
+    setLanguage,
+    toggleLanguage,
     loadHomeData,
     fetchLibrary,
     login,

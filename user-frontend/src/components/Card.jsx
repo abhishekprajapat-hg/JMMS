@@ -1,10 +1,12 @@
 export function Card({ as = 'article', className = '', children }) {
   const Tag = as
+
   return (
     <Tag
-      className={`rounded-2xl border border-orange-100/80 bg-white/90 p-5 shadow-[0_12px_30px_rgba(234,88,12,0.09)] backdrop-blur-sm dark:border-orange-900/40 dark:bg-zinc-900/80 ${className}`}
+      className={`relative overflow-hidden rounded-[30px] border border-[rgba(214,136,54,0.16)] bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(255,247,237,0.86))] p-6 shadow-[0_26px_60px_rgba(138,76,24,0.12)] backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.95),transparent)] dark:border-[rgba(251,191,36,0.12)] dark:bg-[linear-gradient(180deg,rgba(28,22,18,0.94),rgba(18,16,14,0.88))] dark:shadow-[0_26px_60px_rgba(0,0,0,0.38)] ${className}`}
     >
-      {children}
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.26),transparent_34%)] dark:bg-[radial-gradient(circle_at_top_right,rgba(251,191,36,0.08),transparent_32%)]" />
+      <div className="relative">{children}</div>
     </Tag>
   )
 }

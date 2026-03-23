@@ -1,4 +1,9 @@
-const WEEK_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+import { getLocale } from './i18n'
+
+const WEEK_DAYS = {
+  en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+  hi: ['रवि', 'सोम', 'मंगल', 'बुध', 'गुरु', 'शुक्र', 'शनि'],
+}
 
 function padNumber(value) {
   return String(value).padStart(2, '0')
@@ -21,11 +26,11 @@ export function toIsoDate(value) {
   return `${value.getFullYear()}-${padNumber(value.getMonth() + 1)}-${padNumber(value.getDate())}`
 }
 
-export function formatLongDate(value) {
+export function formatLongDate(value, language = 'en') {
   if (!value) return '-'
   const parsed = value instanceof Date ? value : parseIsoDate(value)
   if (!parsed) return '-'
-  return parsed.toLocaleDateString('en-IN', {
+  return parsed.toLocaleDateString(getLocale(language), {
     weekday: 'long',
     day: '2-digit',
     month: 'long',
@@ -33,11 +38,11 @@ export function formatLongDate(value) {
   })
 }
 
-export function formatShortDate(value) {
+export function formatShortDate(value, language = 'en') {
   if (!value) return '-'
   const parsed = value instanceof Date ? value : parseIsoDate(value)
   if (!parsed) return '-'
-  return parsed.toLocaleDateString('en-IN', {
+  return parsed.toLocaleDateString(getLocale(language), {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
@@ -63,8 +68,8 @@ export function getMonthGrid(baseDate) {
   return cells
 }
 
-export function getWeekDays() {
-  return WEEK_DAYS
+export function getWeekDays(language = 'en') {
+  return WEEK_DAYS[language] || WEEK_DAYS.en
 }
 
 export function createDateMap(records) {
@@ -83,11 +88,21 @@ export function buildFallbackDay(date) {
     tithi: 'Not Available',
     paksha: 'Not Available',
     nakshatra: 'Not Available',
+    nakshatraEndsAt: '',
+    nextNakshatra: '',
     sunrise: '-',
     sunset: '-',
     jainMonth: '-',
+    lunarDate: '',
     festival: '',
+    kalyanak: '',
     fasting: '',
+    tithiEndsAt: '',
+    nextTithi: '',
+    moonSign: '',
+    yoga: '',
+    karana: '',
+    sourceNote: '',
     auspiciousInfo: 'No calendar data available for this date.',
     rituals: 'Follow daily samayik and svadhyay.',
   }

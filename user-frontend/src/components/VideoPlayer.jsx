@@ -1,6 +1,14 @@
 import { Modal } from './Modal'
+import { useApp } from '../context/AppContext'
+import { pickByLanguage } from '../utils/i18n'
 
 export function VideoPlayer({ video, open, onClose }) {
+  const { language } = useApp()
+  const copy = pickByLanguage(language, {
+    en: { openVideoLink: 'Open Video Link' },
+    hi: { openVideoLink: 'वीडियो लिंक खोलें' },
+  })
+
   if (!video) return null
   const hasEmbed = Boolean(video.youtubeId)
 
@@ -24,7 +32,7 @@ export function VideoPlayer({ video, open, onClose }) {
             rel="noreferrer"
             className="focus-ring inline-flex rounded-full bg-orange-600 px-4 py-2 text-sm font-semibold text-white"
           >
-            Open Video Link
+            {copy.openVideoLink}
           </a>
         )}
         <p className="text-sm text-zinc-600 dark:text-zinc-300">{video.description}</p>

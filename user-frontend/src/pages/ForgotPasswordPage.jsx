@@ -3,11 +3,33 @@ import { Link } from 'react-router-dom'
 import { Card } from '../components/Card'
 import { PageHeader } from '../components/PageHeader'
 import { useApp } from '../context/AppContext'
+import { pickByLanguage } from '../utils/i18n'
 
 export function ForgotPasswordPage() {
-  const { requestPasswordReset } = useApp()
+  const { requestPasswordReset, language } = useApp()
   const [email, setEmail] = useState('')
   const [message, setMessage] = useState('')
+
+  const copy = pickByLanguage(language, {
+    en: {
+      eyebrow: 'Authentication',
+      title: 'Forgot Password',
+      description: 'Enter your email. If reset API is configured, a reset link will be sent.',
+      email: 'Email',
+      send: 'Send Reset Link',
+      backTo: 'Back to',
+      login: 'Login',
+    },
+    hi: {
+      eyebrow: 'प्रमाणीकरण',
+      title: 'पासवर्ड भूल गए',
+      description: 'अपना ईमेल दर्ज करें। यदि रीसेट API कॉन्फिगर है, तो रीसेट लिंक भेजा जाएगा।',
+      email: 'ईमेल',
+      send: 'रीसेट लिंक भेजें',
+      backTo: 'वापस जाएँ',
+      login: 'लॉगिन',
+    },
+  })
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -18,16 +40,16 @@ export function ForgotPasswordPage() {
   return (
     <div className="mx-auto w-full max-w-xl space-y-5">
       <PageHeader
-        eyebrow="Authentication"
-        title="Forgot Password"
-        description="Enter your email. If reset API is configured, a reset link will be sent."
+        eyebrow={copy.eyebrow}
+        title={copy.title}
+        description={copy.description}
       />
 
       <Card>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="reset-email" className="mb-1 block text-sm font-semibold text-zinc-700 dark:text-zinc-200">
-              Email
+              {copy.email}
             </label>
             <input
               id="reset-email"
@@ -43,7 +65,7 @@ export function ForgotPasswordPage() {
             type="submit"
             className="focus-ring rounded-xl bg-orange-600 px-5 py-2.5 text-sm font-bold text-white transition hover:brightness-105"
           >
-            Send Reset Link
+            {copy.send}
           </button>
         </form>
 
@@ -54,9 +76,9 @@ export function ForgotPasswordPage() {
         )}
 
         <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-300">
-          Back to{' '}
+          {copy.backTo}{' '}
           <Link to="/login" className="font-semibold text-orange-700 dark:text-orange-300">
-            Login
+            {copy.login}
           </Link>
         </p>
       </Card>
