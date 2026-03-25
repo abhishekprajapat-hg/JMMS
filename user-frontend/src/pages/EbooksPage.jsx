@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import fallbackBooks from '../data/books.json'
 import { Card } from '../components/Card'
 import { PageHeader } from '../components/PageHeader'
 import { useApp } from '../context/AppContext'
+import { loadFallbackBooks } from '../utils/contentFallbacks'
 import {
   formatLocalizedNumber,
   pickByLanguage,
@@ -19,6 +19,7 @@ export function EbooksPage() {
   const [books, setBooks] = useState([])
   const [loading, setLoading] = useState(true)
   const { currentUser, toggleSavedEbook, fetchLibrary, language } = useApp()
+  const deferredQuery = useDeferredValue(query)
 
   const copy = pickByLanguage(language, {
     en: {
@@ -61,19 +62,25 @@ export function EbooksPage() {
 
   useEffect(() => {
     let mounted = true
-    setLoading(true)
-    fetchLibrary('ebook')
-      .then((items) => {
+    const loadBooks = async () => {
+      setLoading(true)
+      try {
+        const items = await fetchLibrary('ebook')
         if (!mounted) return
+
         if (items.length) {
           setBooks(items)
-        } else {
-          setBooks(fallbackBooks)
+          return
         }
-      })
-      .finally(() => {
+
+        const fallbackBooks = await loadFallbackBooks()
+        if (mounted) setBooks(fallbackBooks)
+      } finally {
         if (mounted) setLoading(false)
-      })
+      }
+    }
+
+    loadBooks()
 
     return () => {
       mounted = false
@@ -86,7 +93,7 @@ export function EbooksPage() {
   )
 
   const filteredBooks = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase()
+    const normalizedQuery = deferredQuery.trim().toLowerCase()
     return books.filter((book) => {
       const categoryMatch = category === 'All' || (book.category || copy.defaultCategory) === category
       const queryMatch =
@@ -97,7 +104,7 @@ export function EbooksPage() {
           .includes(normalizedQuery)
       return categoryMatch && queryMatch
     })
-  }, [books, query, category, copy.defaultCategory])
+  }, [books, deferredQuery, category, copy.defaultCategory])
 
   function handleSearchSubmit(event) {
     event.preventDefault()
@@ -142,7 +149,7 @@ export function EbooksPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap gap-2">
           {categories.map((item) => (
             <button
               key={item}
@@ -177,6 +184,7 @@ export function EbooksPage() {
                   alt={`${book.title} cover`}
                   className="h-56 w-full object-cover transition duration-500 group-hover:scale-105"
                   loading="lazy"
+                  decoding="async"
                 />
                 <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent,rgba(32,20,12,0.84))]" />
                 <span className="absolute left-4 top-4 inline-flex rounded-full border border-white/30 bg-black/30 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-white backdrop-blur-sm">

@@ -182,6 +182,7 @@ export function HeroMandirCarousel({
   }, [homeData, language, mandirProfile])
 
   const displayIndex = slides.length ? activeIndex % slides.length : 0
+  const activeSlide = slides[displayIndex] || slides[0] || null
 
   useEffect(() => {
     if (slides.length <= 1) return undefined
@@ -193,6 +194,15 @@ export function HeroMandirCarousel({
     return () => window.clearInterval(intervalId)
   }, [slides.length])
 
+  useEffect(() => {
+    if (!slides.length) return
+    const nextSlide = slides[(displayIndex + 1) % slides.length]
+    if (!nextSlide?.image || typeof window === 'undefined') return
+
+    const image = new window.Image()
+    image.src = nextSlide.image
+  }, [displayIndex, slides])
+
   const nextSlide = () => {
     setActiveIndex((current) => (current + 1) % slides.length)
   }
@@ -202,21 +212,22 @@ export function HeroMandirCarousel({
       className={`relative overflow-hidden bg-[#120c08] shadow-[0_32px_90px_rgba(0,0,0,0.28)] ${className}`}
     >
       <div className={`relative ${minHeightClassName}`}>
-        {slides.map((slide, index) => (
+        {activeSlide && (
           <div
-            key={slide.id || `${slide.title}-${index}`}
-            className={`absolute inset-0 transition-opacity duration-700 ${index === displayIndex ? 'opacity-100' : 'opacity-0'}`}
-            aria-hidden={index !== displayIndex}
+            key={activeSlide.id || `${activeSlide.title}-${displayIndex}`}
+            className="absolute inset-0"
           >
             <img
-              src={slide.image}
-              alt={slide.alt || slide.title}
+              src={activeSlide.image}
+              alt={activeSlide.alt || activeSlide.title}
               className={`h-full w-full object-cover ${minHeightClassName}`}
-              loading={index === 0 ? 'eager' : 'lazy'}
+              loading="eager"
+              fetchPriority="high"
+              decoding="async"
             />
             <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(10,7,5,0.16),rgba(10,7,5,0.38),rgba(10,7,5,0.92))]" />
           </div>
-        ))}
+        )}
 
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,214,170,0.18),transparent_28%)]" />
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_bottom_right,rgba(234,88,12,0.26),transparent_32%)]" />

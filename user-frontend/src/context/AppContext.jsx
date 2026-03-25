@@ -12,6 +12,16 @@ const STORAGE_KEYS = {
   language: 'jmms_language_v1',
 }
 
+const SESSION_CACHE_KEYS = {
+  homeData: 'jmms_public_home_cache_v1',
+  library: 'jmms_public_library_cache_v1',
+}
+
+const SESSION_CACHE_TTL_MS = {
+  homeData: 5 * 60 * 1000,
+  library: 15 * 60 * 1000,
+}
+
 const DEFAULT_PAYMENT_GATEWAYS = [
   'Direct UPI (No Commission)',
   'Direct Bank Transfer (No Commission)',
@@ -26,6 +36,7 @@ const DEFAULT_FUND_CATEGORIES = [
 ]
 
 function readJsonStorage(key, fallbackValue) {
+  if (typeof window === 'undefined') return fallbackValue
   try {
     const rawValue = window.localStorage.getItem(key)
     if (!rawValue) return fallbackValue
@@ -33,6 +44,56 @@ function readJsonStorage(key, fallbackValue) {
     return parsed ?? fallbackValue
   } catch {
     return fallbackValue
+  }
+}
+
+function readSessionCache(key, maxAgeMs, fallbackValue) {
+  if (typeof window === 'undefined') return fallbackValue
+  try {
+    const rawValue = window.sessionStorage.getItem(key)
+    if (!rawValue) return fallbackValue
+
+    const parsed = JSON.parse(rawValue)
+    const timestamp = Number(parsed?.timestamp || 0)
+    if (maxAgeMs > 0 && (!timestamp || Date.now() - timestamp > maxAgeMs)) {
+      window.sessionStorage.removeItem(key)
+      return fallbackValue
+    }
+
+    return parsed?.value ?? fallbackValue
+  } catch {
+    return fallbackValue
+  }
+}
+
+function writeSessionCache(key, value) {
+  if (typeof window === 'undefined') return
+  try {
+    if (value === null || value === undefined) {
+      window.sessionStorage.removeItem(key)
+      return
+    }
+
+    window.sessionStorage.setItem(key, JSON.stringify({
+      timestamp: Date.now(),
+      value,
+    }))
+  } catch {
+    // Ignore session storage write failures.
+  }
+}
+
+function readCachedLibrary() {
+  const fallbackValue = {
+    ebook: [],
+    video: [],
+  }
+
+  const cachedValue = readSessionCache(SESSION_CACHE_KEYS.library, SESSION_CACHE_TTL_MS.library, fallbackValue)
+
+  return {
+    ebook: Array.isArray(cachedValue?.ebook) ? cachedValue.ebook : [],
+    video: Array.isArray(cachedValue?.video) ? cachedValue.video : [],
   }
 }
 
@@ -117,13 +178,10 @@ export function AppProvider({ children }) {
     return stored === 'true'
   })
   const [userPrefs, setUserPrefs] = useState(() => readJsonStorage(STORAGE_KEYS.userPrefs, {}))
-  const [homeData, setHomeData] = useState(null)
+  const [homeData, setHomeData] = useState(() => readSessionCache(SESSION_CACHE_KEYS.homeData, SESSION_CACHE_TTL_MS.homeData, null))
   const [homeLoading, setHomeLoading] = useState(false)
   const [homeError, setHomeError] = useState('')
-  const [libraryCache, setLibraryCache] = useState({
-    ebook: [],
-    video: [],
-  })
+  const [libraryCache, setLibraryCache] = useState(readCachedLibrary)
   const libraryCacheRef = useRef(libraryCache)
 
   const isAuthenticated = Boolean(sessionToken)
@@ -209,6 +267,14 @@ export function AppProvider({ children }) {
     libraryCacheRef.current = libraryCache
   }, [libraryCache])
 
+  useEffect(() => {
+    writeSessionCache(SESSION_CACHE_KEYS.homeData, homeData)
+  }, [homeData])
+
+  useEffect(() => {
+    writeSessionCache(SESSION_CACHE_KEYS.library, libraryCache)
+  }, [libraryCache])
+
   function toggleDarkMode() {
     setDarkMode((previous) => {
       const nextValue = !previous
@@ -221,7 +287,17 @@ export function AppProvider({ children }) {
     setLanguage((previous) => (previous === 'hi' ? 'en' : 'hi'))
   }
 
-  const loadHomeData = useCallback(async () => {
+  const loadHomeData = useCallback(async (options = {}) => {
+    const force = options?.force === true
+    if (!force) {
+      const cachedHomeData = readSessionCache(SESSION_CACHE_KEYS.homeData, SESSION_CACHE_TTL_MS.homeData, null)
+      if (cachedHomeData) {
+        setHomeData(cachedHomeData)
+        setHomeError('')
+        return cachedHomeData
+      }
+    }
+
     setHomeLoading(true)
     try {
       const response = await apiRequest('/public/home')
@@ -262,6 +338,12 @@ export function AppProvider({ children }) {
     if (!force) {
       const cachedItems = libraryCacheRef.current[normalizedType]
       if (cachedItems?.length) return cachedItems
+
+      const cachedLibrary = readCachedLibrary()
+      if (cachedLibrary[normalizedType]?.length) {
+        setLibraryCache(cachedLibrary)
+        return cachedLibrary[normalizedType]
+      }
     }
 
     try {

@@ -12,6 +12,30 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('react-router')) return 'router'
+              return 'vendor'
+            }
+
+            if (
+              id.includes('/src/services/panchangService') ||
+              id.includes('/src/data/jainCalendarData') ||
+              id.includes('/src/data/january2026Exact') ||
+              id.includes('/src/data/jainKalyanakData') ||
+              id.includes('/src/data/jainFestivalHighlights')
+            ) {
+              return 'calendar-data'
+            }
+
+            return undefined
+          },
+        },
+      },
+    },
     resolve: {
       dedupe: ['react', 'react-dom', 'react-router', 'react-router-dom'],
       alias: {

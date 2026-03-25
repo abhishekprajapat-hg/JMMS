@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
-import fallbackVideos from '../data/videos.json'
+import { Suspense, lazy, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { Card } from '../components/Card'
 import { PageHeader } from '../components/PageHeader'
-import { VideoPlayer } from '../components/VideoPlayer'
 import { useApp } from '../context/AppContext'
+import { loadFallbackVideos } from '../utils/contentFallbacks'
 import {
   formatLocalizedNumber,
   pickByLanguage,
@@ -11,6 +10,7 @@ import {
 } from '../utils/i18n'
 
 const defaultThumbnail = 'https://images.unsplash.com/photo-1511379938547-c1f69419868d?auto=format&fit=crop&w=900&q=80'
+const VideoPlayer = lazy(() => import('../components/VideoPlayer').then((module) => ({ default: module.VideoPlayer })))
 
 function normalizeCategory(categoryText) {
   const value = String(categoryText || '').trim()
@@ -28,6 +28,7 @@ export function VideosPage() {
   const [videos, setVideos] = useState([])
   const [loading, setLoading] = useState(true)
   const { addWatchHistory, fetchLibrary, language } = useApp()
+  const deferredQuery = useDeferredValue(query)
 
   const copy = pickByLanguage(language, {
     en: {
@@ -62,18 +63,27 @@ export function VideosPage() {
 
   useEffect(() => {
     let mounted = true
-    fetchLibrary('video')
-      .then((items) => {
+    const loadVideos = async () => {
+      setLoading(true)
+      try {
+        const items = await fetchLibrary('video')
         if (!mounted) return
+
         if (items.length) {
           setVideos(items.map((item) => ({ ...item, category: normalizeCategory(item.category) })))
-        } else {
-          setVideos(fallbackVideos)
+          return
         }
-      })
-      .finally(() => {
+
+        const fallbackVideos = await loadFallbackVideos()
+        if (mounted) {
+          setVideos(fallbackVideos.map((item) => ({ ...item, category: normalizeCategory(item.category) })))
+        }
+      } finally {
         if (mounted) setLoading(false)
-      })
+      }
+    }
+
+    loadVideos()
 
     return () => {
       mounted = false
@@ -86,7 +96,7 @@ export function VideosPage() {
   )
 
   const filteredVideos = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase()
+    const normalizedQuery = deferredQuery.trim().toLowerCase()
     return videos.filter((video) => {
       const categoryMatch = category === 'All' || (video.category || copy.defaultCategory) === category
       const queryMatch =
@@ -94,7 +104,7 @@ export function VideosPage() {
         [video.title, video.description, video.category].join(' ').toLowerCase().includes(normalizedQuery)
       return categoryMatch && queryMatch
     })
-  }, [videos, query, category, copy.defaultCategory])
+  }, [videos, deferredQuery, category, copy.defaultCategory])
 
   function openVideo(video) {
     setSelectedVideo(video)
@@ -109,7 +119,7 @@ export function VideosPage() {
         description={copy.description}
       />
 
-      <Card className="space-y-5">
+      <Card className="space-y-6">
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end xl:gap-6">
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-700 dark:text-orange-300">{copy.find}</p>
@@ -129,7 +139,7 @@ export function VideosPage() {
           </div>
         </div>
 
-        <div className="rounded-[24px] border border-orange-200/70 bg-white/62 px-4 py-4 dark:border-orange-900/30 dark:bg-white/5">
+        <div className="mt-3 rounded-[24px] border border-orange-200/70 bg-white/62 px-4 py-4 dark:border-orange-900/30 dark:bg-white/5">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-700 dark:text-orange-300">{copy.browse}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             {categories.map((item) => (
@@ -160,6 +170,7 @@ export function VideosPage() {
                   alt={`${video.title} thumbnail`}
                   className="h-56 w-full object-cover transition duration-500 group-hover:scale-105"
                   loading="lazy"
+                  decoding="async"
                 />
                 <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent,rgba(28,20,14,0.84))]" />
                 <span className="absolute left-4 top-4 inline-flex rounded-full border border-white/30 bg-black/30 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-white backdrop-blur-sm">
@@ -185,11 +196,13 @@ export function VideosPage() {
         ))}
       </div>
 
-      <VideoPlayer
-        video={selectedVideo}
-        open={Boolean(selectedVideo)}
-        onClose={() => setSelectedVideo(null)}
-      />
+      <Suspense fallback={null}>
+        <VideoPlayer
+          video={selectedVideo}
+          open={Boolean(selectedVideo)}
+          onClose={() => setSelectedVideo(null)}
+        />
+      </Suspense>
     </div>
   )
 }
