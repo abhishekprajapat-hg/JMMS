@@ -26,6 +26,30 @@ const { userRoutes } = require('./routes/userRoutes')
 const { contentRoutes } = require('./routes/contentRoutes')
 const { getReceiptDirPath, getUploadDirPath } = require('./store/db')
 
+function safelyDecodePathSegment(value) {
+  try {
+    return decodeURIComponent(String(value || ''))
+  } catch (_error) {
+    return String(value || '')
+  }
+}
+
+function normalizeReceiptRequestUrl(requestUrl = '') {
+  const rawValue = String(requestUrl || '')
+  const [pathname, search = ''] = rawValue.split('?')
+  const decodedPathname = safelyDecodePathSegment(pathname)
+  const normalizedPathname = decodedPathname
+    .replace(/^\/+/, '/')
+    .replace(/^\/+(?:\{\{\d+\}\}|\{\d+\})+/, '/')
+    .replace(/^\/+/, '/')
+
+  if (normalizedPathname === pathname) {
+    return rawValue
+  }
+
+  return `${normalizedPathname}${search ? `?${search}` : ''}`
+}
+
 const app = express()
 app.disable('etag')
 const allowedOrigins = new Set(env.frontendOrigins || [env.frontendOrigin])
@@ -59,6 +83,10 @@ app.get('/health', (_req, res) => {
   })
 })
 
+app.use('/receipts', (req, _res, next) => {
+  req.url = normalizeReceiptRequestUrl(req.url)
+  next()
+})
 app.use('/receipts', express.static(getReceiptDirPath()))
 app.use('/uploads', express.static(getUploadDirPath()))
 app.use('/api/system', systemRoutes)
@@ -86,4 +114,4 @@ app.use('/api/content', contentRoutes)
 app.use(notFoundHandler)
 app.use(errorHandler)
 
-module.exports = { app }
+module.exports = { app, normalizeReceiptRequestUrl }

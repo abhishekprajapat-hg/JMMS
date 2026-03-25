@@ -338,22 +338,29 @@ router.post('/:paymentId/reconcile', authorize('reconcilePayments'), async (req,
         throw badRequest('Linked transaction is cancelled and cannot be settled.')
       }
 
+      if (!['Pledged', 'Paid'].includes(linked.status)) {
+        throw badRequest('Linked transaction must be pledged or already paid before settlement.')
+      }
+
       if (linked.status === 'Pledged') {
         linked.status = 'Paid'
         linked.dueDate = ''
         linked.paidAt = new Date().toISOString()
-        const withReceipt = await attachReceiptIfPaid({
-          db,
-          transaction: linked,
-          munimName: req.user.fullName,
-          mandirId,
-        })
-        Object.assign(linked, withReceipt)
-        settledTransaction = linked
-        shouldSendReceipt = true
-      } else {
-        settledTransaction = linked
       }
+
+      if (!linked.paidAt) {
+        linked.paidAt = new Date().toISOString()
+      }
+
+      const withReceipt = await attachReceiptIfPaid({
+        db,
+        transaction: linked,
+        munimName: req.user.fullName,
+        mandirId,
+      })
+      Object.assign(linked, withReceipt)
+      settledTransaction = linked
+      shouldSendReceipt = true
     } else {
       const requestedTransactionType = ensureRequiredString(req.body?.transactionType)
       const requestedFundCategory = ensureRequiredString(req.body?.fundCategory)
@@ -405,6 +412,61 @@ router.post('/:paymentId/reconcile', authorize('reconcilePayments'), async (req,
     return res.json({
       paymentIntent,
       settledTransaction,
+      whatsappLog,
+    })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+router.post('/:paymentId/resend-receipt', authorizeAny(['reconcilePayments', 'logDonations']), async (req, res, next) => {
+  try {
+    const db = getDb()
+    const mandirId = resolveMandirId(req, db)
+    const paymentIntent = db.paymentIntents.find(
+      (item) => item.id === req.params.paymentId && getRecordMandirId(item) === mandirId,
+    )
+    if (!paymentIntent) throw notFound('Payment intent not found.')
+    if (paymentIntent.status !== 'Success') {
+      throw badRequest('Only successful payment intents can resend a WhatsApp receipt.')
+    }
+    if (!paymentIntent.linkedTransactionId) {
+      throw badRequest('No settled transaction is linked to this payment intent.')
+    }
+
+    const linked = db.transactions.find(
+      (transaction) =>
+        transaction.id === paymentIntent.linkedTransactionId && getRecordMandirId(transaction) === mandirId,
+    )
+    if (!linked) {
+      throw badRequest('Linked transaction not found for receipt resend.')
+    }
+    if (linked.cancelled) {
+      throw badRequest('Cancelled transactions cannot resend a receipt.')
+    }
+    if (linked.status !== 'Paid') {
+      throw badRequest('Only paid transactions can resend a receipt.')
+    }
+
+    const withReceipt = await attachReceiptIfPaid({
+      db,
+      transaction: linked,
+      munimName: req.user.fullName,
+      mandirId,
+    })
+    Object.assign(linked, withReceipt)
+    await saveDb()
+
+    const whatsappLog = await sendWhatsAppTemplate({
+      transaction: linked,
+      templateType: 'instant_receipt',
+      trigger: 'manual_receipt_retry',
+      initiatedBy: req.user.username,
+    })
+
+    return res.json({
+      paymentIntent,
+      settledTransaction: linked,
       whatsappLog,
     })
   } catch (error) {

@@ -29,6 +29,12 @@ function readEnvValueFromFile(key) {
   }
 }
 
+function readBooleanEnvValueFromFile(key, fallback = false) {
+  const raw = readEnvValueFromFile(key)
+  if (!raw) return Boolean(fallback)
+  return String(raw).trim().toLowerCase() === 'true'
+}
+
 function buildTextBody({ to, message, callbackData = '' }) {
   const payload = {
     messaging_product: 'whatsapp',
@@ -51,6 +57,8 @@ function buildTemplateBody({
   templateLanguage,
   callbackData = '',
   templateBodyParams = [],
+  templateButtonUrlParams = [],
+  templateButtonUrlIndex = '0',
 }) {
   const payload = {
     messaging_product: 'whatsapp',
@@ -64,16 +72,51 @@ function buildTemplateBody({
       },
     },
   }
+  const components = []
   if (Array.isArray(templateBodyParams) && templateBodyParams.length) {
-    payload.template.components = [
-      {
-        type: 'body',
-        parameters: templateBodyParams.map((value) => ({
-          type: 'text',
-          text: String(value || '').slice(0, 1024),
-        })),
-      },
-    ]
+    components.push({
+      type: 'body',
+      parameters: templateBodyParams.map((value) => ({
+        type: 'text',
+        text: String(value || '').slice(0, 1024),
+      })),
+    })
+  }
+  if (Array.isArray(templateButtonUrlParams) && templateButtonUrlParams.length) {
+    components.push({
+      type: 'button',
+      sub_type: 'url',
+      index: String(templateButtonUrlIndex || '0'),
+      parameters: templateButtonUrlParams.map((value) => ({
+        type: 'text',
+        text: String(value || '').slice(0, 1024),
+      })),
+    })
+  }
+  if (components.length) {
+    payload.template.components = components
+  }
+  if (callbackData) {
+    payload.biz_opaque_callback_data = String(callbackData).slice(0, 512)
+  }
+  return payload
+}
+
+function buildDocumentBody({ to, documentUrl, documentFilename = '', caption = '', callbackData = '' }) {
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'document',
+    document: {
+      link: String(documentUrl || '').trim(),
+    },
+  }
+  if (documentFilename) {
+    payload.document.filename = String(documentFilename || '').trim().slice(0, 240)
+  }
+  if (caption) {
+    payload.document.caption = String(caption || '').trim().slice(0, 1024)
   }
   if (callbackData) {
     payload.biz_opaque_callback_data = String(callbackData).slice(0, 512)
@@ -109,6 +152,100 @@ async function sendMetaPayload({ url, token, body }) {
   }
 }
 
+async function sendMetaContent({
+  url,
+  token,
+  to,
+  callbackData,
+  message,
+  documentUrl = '',
+  documentFilename = '',
+  documentCaption = '',
+}) {
+  const normalizedDocumentUrl = String(documentUrl || '').trim()
+  if (normalizedDocumentUrl) {
+    const documentAttempt = await sendMetaPayload({
+      url,
+      token,
+      body: buildDocumentBody({
+        to,
+        documentUrl: normalizedDocumentUrl,
+        documentFilename,
+        caption: documentCaption || message,
+        callbackData,
+      }),
+    })
+    if (documentAttempt.ok || !message) {
+      return {
+        ...documentAttempt,
+        mode: 'document_only',
+        kind: 'document',
+      }
+    }
+  }
+
+  const textAttempt = await sendMetaPayload({
+    url,
+    token,
+    body: buildTextBody({
+      to,
+      message,
+      callbackData,
+    }),
+  })
+
+  return {
+    ...textAttempt,
+    mode: 'text_only',
+    kind: 'text',
+  }
+}
+
+async function sendMetaContentWithOptionalTextFollowup({
+  url,
+  token,
+  to,
+  callbackData,
+  message,
+  documentUrl = '',
+  documentFilename = '',
+  documentCaption = '',
+  sendTextFollowup = false,
+}) {
+  const primaryAttempt = await sendMetaContent({
+    url,
+    token,
+    to,
+    callbackData,
+    message,
+    documentUrl,
+    documentFilename,
+    documentCaption,
+  })
+
+  if (!primaryAttempt.ok || !sendTextFollowup || !message || primaryAttempt.kind !== 'document') {
+    return primaryAttempt
+  }
+
+  const textFollowupAttempt = await sendMetaPayload({
+    url,
+    token,
+    body: buildTextBody({
+      to,
+      message,
+      callbackData,
+    }),
+  })
+
+  return {
+    ...primaryAttempt,
+    mode: 'document_then_text',
+    followupSent: textFollowupAttempt.ok,
+    followupStatus: textFollowupAttempt.status,
+    followupResult: textFollowupAttempt.payload,
+  }
+}
+
 router.post('/send', async (req, res, next) => {
   try {
     const token = readBearerToken(req) || env.whatsappAccessToken || readEnvValueFromFile('WHATSAPP_ACCESS_TOKEN')
@@ -140,8 +277,18 @@ router.post('/send', async (req, res, next) => {
       : templateBodyText
       ? [templateBodyText]
       : []
+    const templateButtonUrlParams = Array.isArray(req.body?.meta?.templateButtonUrlParams)
+      ? req.body.meta.templateButtonUrlParams
+      : []
+    const templateButtonUrlIndex = String(req.body?.meta?.templateButtonUrlIndex || '0').trim() || '0'
     const sendFollowupText = Boolean(req.body?.meta?.sendFollowupText)
     const followupText = String(req.body?.meta?.followupText || message).trim()
+    const followupDocumentUrl = String(req.body?.meta?.followupDocumentUrl || '').trim()
+    const followupDocumentFilename = String(req.body?.meta?.followupDocumentFilename || '').trim()
+    const followupDocumentCaption = String(req.body?.meta?.followupDocumentCaption || followupText).trim()
+    const allowSampleTemplate =
+      Boolean(req.body?.meta?.allowSampleTemplate) ||
+      readBooleanEnvValueFromFile('WHATSAPP_ALLOW_SAMPLE_TEMPLATE', env.whatsappAllowSampleTemplate)
 
     if (!token) {
       throw badRequest('Missing WhatsApp access token for adapter dispatch.')
@@ -152,41 +299,75 @@ router.post('/send', async (req, res, next) => {
     if (!to) {
       throw badRequest('Destination phone is required.')
     }
-    if (!useTemplate && !message) {
-      throw badRequest('Message body is required.')
+    if (!useTemplate && !message && !followupDocumentUrl) {
+      throw badRequest('Message body or receipt document is required.')
     }
     if (useTemplate && !templateName) {
       throw badRequest('Template name is required when template mode is enabled.')
     }
-    if (useTemplate && isPlaceholderMetaTemplateName(templateName)) {
+    if (useTemplate && isPlaceholderMetaTemplateName(templateName) && !allowSampleTemplate) {
       throw badRequest('Meta sample template "hello_world" cannot be used for live notifications.')
     }
 
     const url = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`
     if (!useTemplate) {
-      const textAttempt = await sendMetaPayload({
+      const directAttempt = await sendMetaContentWithOptionalTextFollowup({
         url,
         token,
-        body: buildTextBody({
-          to,
-          message,
-          callbackData,
-        }),
+        to,
+        callbackData,
+        message,
+        documentUrl: followupDocumentUrl,
+        documentFilename: followupDocumentFilename,
+        documentCaption: followupDocumentCaption,
+        sendTextFollowup: sendFollowupText,
       })
 
-      if (!textAttempt.ok) {
-        return res.status(textAttempt.status).json({
+      if (!directAttempt.ok) {
+        return res.status(directAttempt.status).json({
           error: 'Meta adapter send failed.',
-          detail: textAttempt.payload,
+          detail: directAttempt.payload,
         })
       }
 
       return res.json({
         sent: true,
         provider: 'Meta WhatsApp Cloud API',
-        mode: 'text_only',
-        result: textAttempt.payload,
+        mode: directAttempt.mode,
+        result: directAttempt.payload,
+        followupSent: directAttempt.followupSent,
+        followupStatus: directAttempt.followupStatus,
+        followupResult: directAttempt.followupResult,
       })
+    }
+
+    const canBypassSampleTemplate =
+      isPlaceholderMetaTemplateName(templateName) && (followupDocumentUrl || followupText || message)
+    if (canBypassSampleTemplate) {
+      const directAttempt = await sendMetaContentWithOptionalTextFollowup({
+        url,
+        token,
+        to,
+        callbackData,
+        message: followupText || message,
+        documentUrl: followupDocumentUrl,
+        documentFilename: followupDocumentFilename,
+        documentCaption: followupDocumentCaption,
+        sendTextFollowup: sendFollowupText,
+      })
+
+      if (directAttempt.ok) {
+        return res.json({
+          sent: true,
+          provider: 'Meta WhatsApp Cloud API',
+          mode: directAttempt.mode,
+          result: directAttempt.payload,
+          followupSent: directAttempt.followupSent,
+          followupStatus: directAttempt.followupStatus,
+          followupResult: directAttempt.followupResult,
+          bypassedSampleTemplate: true,
+        })
+      }
     }
 
     const templateWithParamsAttempt = await sendMetaPayload({
@@ -198,12 +379,18 @@ router.post('/send', async (req, res, next) => {
         templateLanguage,
         callbackData,
         templateBodyParams,
+        templateButtonUrlParams,
+        templateButtonUrlIndex,
       }),
     })
 
     let templateAttempt = templateWithParamsAttempt
     const paramMismatchCode = parseMetaErrorCode(templateWithParamsAttempt.payload)
-    if (!templateWithParamsAttempt.ok && templateBodyParams.length > 0 && paramMismatchCode === 132000) {
+    if (
+      !templateWithParamsAttempt.ok &&
+      paramMismatchCode === 132000 &&
+      (templateBodyParams.length > 0 || templateButtonUrlParams.length > 0)
+    ) {
       templateAttempt = await sendMetaPayload({
         url,
         token,
@@ -213,6 +400,8 @@ router.post('/send', async (req, res, next) => {
           templateLanguage,
           callbackData,
           templateBodyParams: [],
+          templateButtonUrlParams: [],
+          templateButtonUrlIndex,
         }),
       })
     }
@@ -224,7 +413,7 @@ router.post('/send', async (req, res, next) => {
       })
     }
 
-    if (!sendFollowupText || !followupText) {
+    if ((!sendFollowupText || !followupText) && !followupDocumentUrl) {
       return res.json({
         sent: true,
         provider: 'Meta WhatsApp Cloud API',
@@ -233,20 +422,21 @@ router.post('/send', async (req, res, next) => {
       })
     }
 
-    const followupAttempt = await sendMetaPayload({
+    const followupAttempt = await sendMetaContent({
       url,
       token,
-      body: buildTextBody({
-        to,
-        message: followupText,
-        callbackData,
-      }),
+      to,
+      callbackData,
+      message: followupText,
+      documentUrl: followupDocumentUrl,
+      documentFilename: followupDocumentFilename,
+      documentCaption: followupDocumentCaption,
     })
 
     return res.json({
       sent: true,
       provider: 'Meta WhatsApp Cloud API',
-      mode: 'template_then_text',
+      mode: followupAttempt.kind === 'document' ? 'template_then_document' : 'template_then_text',
       result: templateAttempt.payload,
       followupSent: followupAttempt.ok,
       followupStatus: followupAttempt.status,

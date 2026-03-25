@@ -1,3 +1,6 @@
+const fs = require('node:fs')
+const path = require('node:path')
+const dotenv = require('dotenv')
 const { getDb, saveDb } = require('../store/db')
 const { createId } = require('../utils/ids')
 const { formatInr } = require('../utils/format')
@@ -8,6 +11,7 @@ const { getRecordMandirId, DEFAULT_MANDIR_ID } = require('./tenantService')
 
 const MAX_RETRY_ATTEMPTS = 3
 const RETRY_BACKOFF_MINUTES = [15, 60, 180]
+const DEFAULT_RUNTIME_ENV_PATH = path.resolve(__dirname, '../../.env')
 
 function normalizeBaseUrl(value) {
   return String(value || '').trim().replace(/\/+$/, '')
@@ -17,6 +21,10 @@ function hasHttpProtocol(value) {
   return /^https?:\/\//i.test(String(value || '').trim())
 }
 
+function normalizePhone(value) {
+  return String(value || '').replace(/[^\d]/g, '')
+}
+
 function joinBaseAndPath(base, maybePath) {
   const safeBase = normalizeBaseUrl(base)
   const pathValue = String(maybePath || '').trim()
@@ -24,10 +32,86 @@ function joinBaseAndPath(base, maybePath) {
   return `${safeBase}${pathValue.startsWith('/') ? '' : '/'}${pathValue}`
 }
 
-function resolveReceiptLink(transaction) {
+function getRuntimeEnvPath() {
+  const overridePath = String(process.env.JMMS_RUNTIME_ENV_PATH || '').trim()
+  return overridePath ? path.resolve(overridePath) : DEFAULT_RUNTIME_ENV_PATH
+}
+
+function readRuntimeEnvFile() {
+  try {
+    const runtimeEnvPath = getRuntimeEnvPath()
+    if (!fs.existsSync(runtimeEnvPath)) return {}
+    return dotenv.parse(fs.readFileSync(runtimeEnvPath, 'utf8'))
+  } catch (_error) {
+    return {}
+  }
+}
+
+function hasOwn(source, key) {
+  return Object.prototype.hasOwnProperty.call(source || {}, key)
+}
+
+function resolveRuntimeString(fileEnv, key, fallback = '') {
+  if (hasOwn(fileEnv, key)) {
+    return String(fileEnv[key] || '')
+  }
+  return String(fallback || '')
+}
+
+function resolveRuntimeBoolean(fileEnv, key, fallback = false) {
+  if (hasOwn(fileEnv, key)) {
+    return String(fileEnv[key] || '').trim().toLowerCase() === 'true'
+  }
+  return Boolean(fallback)
+}
+
+function getRuntimeMessagingConfig() {
+  const fileEnv = readRuntimeEnvFile()
+  return {
+    receiptPublicBaseUrl: resolveRuntimeString(fileEnv, 'RECEIPT_PUBLIC_BASE_URL', env.receiptPublicBaseUrl),
+    whatsappAccessToken: resolveRuntimeString(fileEnv, 'WHATSAPP_ACCESS_TOKEN', env.whatsappAccessToken),
+    whatsappUseTemplateForReceipts: resolveRuntimeBoolean(
+      fileEnv,
+      'WHATSAPP_USE_TEMPLATE_FOR_RECEIPTS',
+      env.whatsappUseTemplateForReceipts,
+    ),
+    whatsappTemplateInstantReceipt: resolveRuntimeString(
+      fileEnv,
+      'WHATSAPP_TEMPLATE_INSTANT_RECEIPT',
+      env.whatsappTemplateInstantReceipt,
+    ),
+    whatsappTemplatePledgeReminder: resolveRuntimeString(
+      fileEnv,
+      'WHATSAPP_TEMPLATE_PLEDGE_REMINDER',
+      env.whatsappTemplatePledgeReminder,
+    ),
+    whatsappTemplateLanguage: resolveRuntimeString(
+      fileEnv,
+      'WHATSAPP_TEMPLATE_LANGUAGE',
+      env.whatsappTemplateLanguage,
+    ),
+    whatsappTemplatePassFullMessageAsBodyParam: resolveRuntimeBoolean(
+      fileEnv,
+      'WHATSAPP_TEMPLATE_PASS_FULL_MESSAGE_AS_BODY_PARAM',
+      env.whatsappTemplatePassFullMessageAsBodyParam,
+    ),
+    whatsappTemplateSendFollowupText: resolveRuntimeBoolean(
+      fileEnv,
+      'WHATSAPP_TEMPLATE_SEND_FOLLOWUP_TEXT',
+      env.whatsappTemplateSendFollowupText,
+    ),
+    whatsappAllowSampleTemplate: resolveRuntimeBoolean(
+      fileEnv,
+      'WHATSAPP_ALLOW_SAMPLE_TEMPLATE',
+      env.whatsappAllowSampleTemplate,
+    ),
+  }
+}
+
+function resolveReceiptLink(transaction, runtimeConfig = getRuntimeMessagingConfig()) {
   const receiptPath = String(transaction.receiptPath || '').trim()
   const verificationUrl = String(transaction.receiptVerificationUrl || '').trim()
-  const publicBaseUrl = normalizeBaseUrl(env.receiptPublicBaseUrl)
+  const publicBaseUrl = normalizeBaseUrl(runtimeConfig.receiptPublicBaseUrl)
 
   if (hasHttpProtocol(receiptPath)) return receiptPath
   if (publicBaseUrl && receiptPath) return joinBaseAndPath(publicBaseUrl, receiptPath)
@@ -36,15 +120,39 @@ function resolveReceiptLink(transaction) {
   return receiptPath || verificationUrl
 }
 
-function buildInstantReceiptMessage(transaction, familyName) {
+function resolveReceiptDocumentLink(transaction, runtimeConfig = getRuntimeMessagingConfig()) {
+  const receiptPath = String(transaction.receiptPath || '').trim()
+  const publicBaseUrl = normalizeBaseUrl(runtimeConfig.receiptPublicBaseUrl)
+
+  if (hasHttpProtocol(receiptPath)) return receiptPath
+  if (publicBaseUrl && receiptPath) return joinBaseAndPath(publicBaseUrl, receiptPath)
+  return ''
+}
+
+function buildInstantReceiptMessage(transaction, familyName, runtimeConfig = getRuntimeMessagingConfig()) {
   const safeName = transaction.type === 'Gupt Daan' ? 'Devotee' : familyName || 'Devotee'
-  const receiptLink = resolveReceiptLink(transaction)
+  const receiptLink = resolveReceiptLink(transaction, runtimeConfig)
   const linkLine = receiptLink
     ? `Download your official receipt here: ${receiptLink}.`
     : 'Your official receipt is ready in JMMS.'
   return `Jai Jinendra ${safeName}, we have received your ${transaction.type} of ${formatInr(
     transaction.amount,
   )} for ${transaction.fundCategory}. ${linkLine} Punyanumodana!`
+}
+
+function buildInstantReceiptTemplateBodyParams(transaction, familyName) {
+  const safeName = transaction.type === 'Gupt Daan' ? 'Devotee' : familyName || 'Devotee'
+  const formattedAmount = new Intl.NumberFormat('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(transaction.amount) || 0)
+
+  return [safeName, formattedAmount]
+}
+
+function buildInstantReceiptTemplateButtonUrlParams(transaction) {
+  const receiptFileName = String(transaction.receiptFileName || `${transaction.id}.pdf`).trim()
+  return receiptFileName ? [receiptFileName] : []
 }
 
 function buildPledgeReminderMessage(transaction, familyName) {
@@ -65,6 +173,8 @@ function createLog({
   attempt = 1,
   retryAt = '',
   mandirId = DEFAULT_MANDIR_ID,
+  providerMessageId = '',
+  providerWaId = '',
 }) {
   return {
     id: createId('WLOG'),
@@ -80,6 +190,8 @@ function createLog({
     attempt,
     retryAt,
     mandirId,
+    providerMessageId,
+    providerWaId,
   }
 }
 
@@ -163,18 +275,34 @@ async function sendWhatsAppTemplate({
   const familyName = family?.headName || 'Anonymous'
   const phone = family?.whatsapp || ''
   const config = db.whatsappConfig
+  const businessNumber = String(config.businessNumber || '').trim()
+  const runtimeConfig = getRuntimeMessagingConfig()
   const message =
     templateType === 'instant_receipt'
-      ? buildInstantReceiptMessage(transaction, familyName)
+      ? buildInstantReceiptMessage(transaction, familyName, runtimeConfig)
       : buildPledgeReminderMessage(transaction, familyName)
+  const receiptDocumentUrl =
+    templateType === 'instant_receipt' ? resolveReceiptDocumentLink(transaction, runtimeConfig) : ''
+  const receiptDocumentFilename =
+    templateType === 'instant_receipt'
+      ? String(transaction.receiptFileName || `${transaction.id}.pdf`).trim()
+      : ''
+  const templateBodyParams =
+    templateType === 'instant_receipt' ? buildInstantReceiptTemplateBodyParams(transaction, familyName) : []
+  const templateButtonUrlParams =
+    templateType === 'instant_receipt' ? buildInstantReceiptTemplateButtonUrlParams(transaction) : []
   const metaTemplateName =
-    templateType === 'instant_receipt' ? env.whatsappTemplateInstantReceipt : env.whatsappTemplatePledgeReminder
+    templateType === 'instant_receipt'
+      ? runtimeConfig.whatsappTemplateInstantReceipt
+      : runtimeConfig.whatsappTemplatePledgeReminder
   const normalizedMetaTemplateName = String(metaTemplateName || '').trim()
   const metaTemplateModeEnabled =
-    config.provider === 'Meta WhatsApp Cloud API' && env.whatsappUseTemplateForReceipts
+    config.provider === 'Meta WhatsApp Cloud API' && runtimeConfig.whatsappUseTemplateForReceipts
   const metaTemplateMissing = metaTemplateModeEnabled && !normalizedMetaTemplateName
   const metaTemplatePlaceholder =
-    metaTemplateModeEnabled && isPlaceholderMetaTemplateName(normalizedMetaTemplateName)
+    metaTemplateModeEnabled &&
+    isPlaceholderMetaTemplateName(normalizedMetaTemplateName) &&
+    !runtimeConfig.whatsappAllowSampleTemplate
   const shouldUseMetaTemplate =
     metaTemplateModeEnabled && normalizedMetaTemplateName.length > 0 && !metaTemplatePlaceholder
 
@@ -187,6 +315,30 @@ async function sendWhatsAppTemplate({
       phone: '-',
       status: 'Skipped',
       detail: 'No WhatsApp number available for this family.',
+      initiatedBy,
+      attempt,
+      mandirId: transactionMandirId,
+    })
+    db.whatsappLogs.unshift(skipped)
+    removeRetryQueueItems(db, {
+      queueId,
+      transactionId: transaction.id,
+      templateType,
+      mandirId: transactionMandirId,
+    })
+    await saveDb()
+    return skipped
+  }
+
+  if (businessNumber && normalizePhone(phone) === normalizePhone(businessNumber)) {
+    const skipped = createLog({
+      templateType,
+      trigger,
+      transactionId: transaction.id,
+      familyName,
+      phone,
+      status: 'Skipped',
+      detail: 'Recipient WhatsApp number matches the configured business sender number. Use a different devotee number.',
       initiatedBy,
       attempt,
       mandirId: transactionMandirId,
@@ -256,7 +408,7 @@ async function sendWhatsAppTemplate({
 
   try {
     const configToken = String(config.accessToken || '').trim()
-    const envToken = String(env.whatsappAccessToken || '').trim()
+    const envToken = String(runtimeConfig.whatsappAccessToken || '').trim()
     const tokenCandidates =
       config.provider === 'Meta WhatsApp Cloud API'
         ? [configToken, ...(envToken && envToken !== configToken ? [envToken] : [])]
@@ -293,10 +445,17 @@ async function sendWhatsAppTemplate({
               trigger,
               useTemplate: shouldUseMetaTemplate,
               templateName: String(metaTemplateName || '').trim(),
-              templateLanguage: String(env.whatsappTemplateLanguage || 'en_US').trim(),
-              templateBodyText: env.whatsappTemplatePassFullMessageAsBodyParam ? message : '',
-              sendFollowupText: shouldUseMetaTemplate && env.whatsappTemplateSendFollowupText,
+              templateLanguage: String(runtimeConfig.whatsappTemplateLanguage || 'en_US').trim(),
+              templateBodyText: runtimeConfig.whatsappTemplatePassFullMessageAsBodyParam ? message : '',
+              templateBodyParams,
+              templateButtonUrlParams,
+              templateButtonUrlIndex: '0',
+              sendFollowupText: shouldUseMetaTemplate && runtimeConfig.whatsappTemplateSendFollowupText,
               followupText: message,
+              followupDocumentUrl: receiptDocumentUrl,
+              followupDocumentFilename: receiptDocumentFilename,
+              followupDocumentCaption: message,
+              allowSampleTemplate: runtimeConfig.whatsappAllowSampleTemplate,
             },
           }),
         })
@@ -325,20 +484,28 @@ async function sendWhatsAppTemplate({
 
     let sentStatus = 'Sent'
     let sentDetail = message
+    const providerMessageId = String(dispatchPayload?.result?.messages?.[0]?.id || '').trim()
+    const providerWaId = String(dispatchPayload?.result?.contacts?.[0]?.wa_id || '').trim()
     if (dispatchPayload?.mode) {
       const followupMeta =
-        dispatchPayload?.mode === 'template_then_text'
+        String(dispatchPayload.mode).startsWith('template_then_')
           ? `, followupSent=${dispatchPayload?.followupSent === true ? 'true' : 'false'}`
           : ''
       sentDetail = `${message} | dispatchMode=${dispatchPayload.mode}${followupMeta}`
     }
-    if (dispatchPayload?.mode === 'template_then_text' && dispatchPayload?.followupSent === false) {
+    if (providerMessageId) {
+      sentDetail = `${sentDetail} | messageId=${providerMessageId}`
+    }
+    if (providerWaId) {
+      sentDetail = `${sentDetail} | waId=${providerWaId}`
+    }
+    if (String(dispatchPayload?.mode || '').startsWith('template_then_') && dispatchPayload?.followupSent === false) {
       const followupError =
         typeof dispatchPayload?.followupResult === 'string'
           ? dispatchPayload.followupResult
           : JSON.stringify(dispatchPayload?.followupResult || {})
-      sentStatus = 'Template Sent / Text Failed'
-      sentDetail = `${message} | Follow-up text failed (${dispatchPayload?.followupStatus || '-'}) ${followupError}`
+      sentStatus = 'Template Sent / Follow-up Failed'
+      sentDetail = `${message} | Follow-up failed (${dispatchPayload?.followupStatus || '-'}) ${followupError}`
     }
 
     const sentLog = createLog({
@@ -352,6 +519,8 @@ async function sendWhatsAppTemplate({
       initiatedBy,
       attempt,
       mandirId: transactionMandirId,
+      providerMessageId,
+      providerWaId,
     })
     db.whatsappLogs.unshift(sentLog)
     removeRetryQueueItems(db, {

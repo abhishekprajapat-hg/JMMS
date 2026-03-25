@@ -58,6 +58,8 @@ const env = {
     String(process.env.WHATSAPP_TEMPLATE_PASS_FULL_MESSAGE_AS_BODY_PARAM || '').toLowerCase() === 'true',
   whatsappTemplateSendFollowupText:
     String(process.env.WHATSAPP_TEMPLATE_SEND_FOLLOWUP_TEXT || '').toLowerCase() === 'true',
+  whatsappAllowSampleTemplate:
+    String(process.env.WHATSAPP_ALLOW_SAMPLE_TEMPLATE || '').toLowerCase() === 'true',
 }
 
 module.exports = { env }

@@ -1,12 +1,34 @@
+const fs = require('node:fs')
+const path = require('node:path')
 const crypto = require('node:crypto')
+const dotenv = require('dotenv')
 const { env } = require('../config/env')
+
+const DEFAULT_RUNTIME_ENV_PATH = path.resolve(__dirname, '../../.env')
 
 function formatReceiptNumber(sequenceNumber) {
   return `RCT-${String(sequenceNumber).padStart(6, '0')}`
 }
 
+function getRuntimeEnvPath() {
+  const overridePath = String(process.env.JMMS_RUNTIME_ENV_PATH || '').trim()
+  return overridePath ? path.resolve(overridePath) : DEFAULT_RUNTIME_ENV_PATH
+}
+
+function getRuntimeReceiptBaseUrl() {
+  try {
+    const runtimeEnvPath = getRuntimeEnvPath()
+    if (fs.existsSync(runtimeEnvPath)) {
+      const fileEnv = dotenv.parse(fs.readFileSync(runtimeEnvPath, 'utf8'))
+      const runtimeValue = String(fileEnv.RECEIPT_PUBLIC_BASE_URL || '').trim()
+      if (runtimeValue) return runtimeValue.replace(/\/+$/, '')
+    }
+  } catch (_error) {}
+  return String(env.receiptPublicBaseUrl || '').trim().replace(/\/+$/, '')
+}
+
 function getPublicBaseUrl() {
-  const custom = String(env.receiptPublicBaseUrl || '').trim()
+  const custom = getRuntimeReceiptBaseUrl()
   if (custom) return custom.replace(/\/+$/, '')
   return `http://localhost:${env.port}`
 }
