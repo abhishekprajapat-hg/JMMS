@@ -3,8 +3,6 @@ import { LanguageToggle } from './LanguageToggle'
 export function AppHeader({
   language,
   onChangeLanguage,
-  canManageWhatsApp,
-  onOpenWhatsAppLogs,
   currentUser,
   compactRoleLabel,
   mandirProfile,
@@ -22,15 +20,6 @@ export function AppHeader({
       </div>
       <div className="make-header-actions">
         <LanguageToggle language={language} onChangeLanguage={onChangeLanguage} />
-        {canManageWhatsApp && (
-          <button
-            type="button"
-            className="make-chip-btn"
-            onClick={onOpenWhatsAppLogs}
-          >
-            WhatsApp Logs
-          </button>
-        )}
         <div className="make-user-block">
           <strong>{currentUser.fullName}</strong>
           <span>Signed in as {compactRoleLabel}</span>

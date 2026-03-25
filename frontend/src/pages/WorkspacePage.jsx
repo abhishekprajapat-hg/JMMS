@@ -364,25 +364,21 @@ export function WorkspacePage() {
   }, [notice.text, notice.type])
 
   function showDonationNoticeWithWhatsApp(log, baseMessage) {
-    const familyName = String(log?.familyName || '').trim()
-    const familyInfo = familyName && familyName !== '-' ? ` Family: ${familyName}.` : ''
-    const phone = String(log?.phone || '').trim()
-    const phoneInfo = phone && phone !== '-' ? ` WhatsApp target: ${phone}.` : ''
     if (!log?.status) {
-      showNotice('success', `${baseMessage}${familyInfo}${phoneInfo}`)
+      showNotice('success', baseMessage)
       return
     }
     if (log.status === 'Sent') {
       showNotice(
         'success',
-        `${baseMessage}${familyInfo}${phoneInfo} Meta accepted send request. Delivery confirmation will appear in WhatsApp Logs.`,
+        `${baseMessage} Receipt has been sent to the devotee on WhatsApp.`,
       )
       return
     }
 
     const detail = String(log.detail || '').trim()
     const suffix = detail ? ` (${detail.slice(0, 160)})` : ''
-    showNotice('error', `${baseMessage}${familyInfo}${phoneInfo} WhatsApp status: ${log.status}.${suffix}`)
+    showNotice('error', `${baseMessage} Devotee WhatsApp receipt could not be sent.${suffix}`)
   }
 
   const applyLanguageToDom = useCallback(() => {

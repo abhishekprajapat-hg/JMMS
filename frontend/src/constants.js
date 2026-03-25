@@ -178,7 +178,6 @@ export const MODULES = [
   { id: 'events', label: 'Events' },
   { id: 'content', label: 'Website Content' },
   { id: 'staff', label: 'User Access' },
-  { id: 'whatsapp', label: 'WhatsApp Engine' },
   { id: 'inventory', label: 'Bhandar' },
   { id: 'scheduler', label: 'Tithi & Pooja Scheduler' },
 ]

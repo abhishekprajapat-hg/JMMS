@@ -214,31 +214,61 @@ export function PaymentsModule({
       )
       if (response.settledTransaction) {
         await onRefreshTransactions()
-        const baseMessage = `Payment verified and transaction ${response.settledTransaction.id} settled.`
-        const familyName = String(response.whatsappLog?.familyName || '').trim()
-        const familyInfo = familyName && familyName !== '-' ? ` Family: ${familyName}.` : ''
-        const phone = String(response.whatsappLog?.phone || '').trim()
-        const phoneInfo = phone && phone !== '-' ? ` WhatsApp target: ${phone}.` : ''
-        if (
-          response.whatsappLog?.status &&
-          response.whatsappLog.status !== 'Sent'
-        ) {
+        const targetPhone = String(response.whatsappLog?.phone || '').trim()
+        const providerMessageId = String(response.whatsappLog?.providerMessageId || '').trim()
+        const sentMeta = [targetPhone ? `to ${targetPhone}` : '', providerMessageId ? `message ${providerMessageId}` : '']
+          .filter(Boolean)
+          .join(', ')
+        const sentSuffix = sentMeta ? ` (${sentMeta})` : ''
+        if (response.whatsappLog?.status && response.whatsappLog.status !== 'Sent') {
           const detail = String(response.whatsappLog.detail || '').trim()
           const suffix = detail ? ` (${detail.slice(0, 160)})` : ''
           onNotice(
             'error',
-            `${baseMessage}${familyInfo}${phoneInfo} WhatsApp status: ${response.whatsappLog.status}.${suffix}`,
-          )
-        } else if (response.whatsappLog?.status === 'Sent') {
-          onNotice(
-            'success',
-            `${baseMessage}${familyInfo}${phoneInfo} Meta accepted send request. Delivery confirmation will appear in WhatsApp Logs.`,
+            `Payment verified and transaction ${response.settledTransaction.id} settled, but devotee WhatsApp receipt could not be sent.${suffix}`,
           )
         } else {
-          onNotice('success', `${baseMessage}${familyInfo}${phoneInfo}`)
+          onNotice(
+            'success',
+            `Payment verified and transaction ${response.settledTransaction.id} settled. Receipt handoff accepted on WhatsApp${sentSuffix}.`,
+          )
         }
       } else {
         onNotice('success', `Payment ${paymentId} marked ${response.paymentIntent.status}.`)
+      }
+    } catch (error) {
+      onNotice('error', error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function resendReceipt(paymentId) {
+    setLoading(true)
+    try {
+      const response = await apiRequest(`/payments/${paymentId}/resend-receipt`, {
+        method: 'POST',
+        token: authToken,
+      })
+      await onRefreshTransactions()
+      const targetPhone = String(response.whatsappLog?.phone || '').trim()
+      const providerMessageId = String(response.whatsappLog?.providerMessageId || '').trim()
+      const sentMeta = [targetPhone ? `to ${targetPhone}` : '', providerMessageId ? `message ${providerMessageId}` : '']
+        .filter(Boolean)
+        .join(', ')
+      const sentSuffix = sentMeta ? ` (${sentMeta})` : ''
+      if (response.whatsappLog?.status && response.whatsappLog.status !== 'Sent') {
+        const detail = String(response.whatsappLog.detail || '').trim()
+        const suffix = detail ? ` (${detail.slice(0, 160)})` : ''
+        onNotice(
+          'error',
+          `Receipt resend attempted for transaction ${response.settledTransaction?.id || '-'}, but WhatsApp could not be sent.${suffix}`,
+        )
+      } else {
+        onNotice(
+          'success',
+          `Receipt resend accepted for transaction ${response.settledTransaction?.id || '-'}${sentSuffix}.`,
+        )
       }
     } catch (error) {
       onNotice('error', error.message)
@@ -496,6 +526,15 @@ export function PaymentsModule({
                           Reject
                         </button>
                       </div>
+                    ) : intent.status === 'Success' && permissions.reconcilePayments ? (
+                      <button
+                        type="button"
+                        className="secondary-btn"
+                        onClick={() => resendReceipt(intent.id)}
+                        disabled={loading}
+                      >
+                        Resend Receipt
+                      </button>
                     ) : (
                       '-'
                     )}
