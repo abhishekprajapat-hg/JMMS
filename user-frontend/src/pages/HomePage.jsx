@@ -103,14 +103,155 @@ export function HomePage() {
     [],
   )
 
-  const donationSnapshot = homeData?.donationSnapshot || {
-    totalAmount: 0,
-    donationCount: 0,
-    supporterFamilies: 0,
-  }
+  const donationSnapshot = useMemo(
+    () => homeData?.donationSnapshot || {
+      totalAmount: 0,
+      donationCount: 0,
+      supporterFamilies: 0,
+    },
+    [homeData],
+  )
+  const renderLegacyHero = Boolean(homeData?.debugLegacyHero)
+
+  const heroStats = useMemo(
+    () => [
+      {
+        label: copy.totalDonations,
+        value: formatLocalizedCurrency(donationSnapshot.totalAmount, language),
+      },
+      {
+        label: copy.donationEntries,
+        value: formatLocalizedNumber(donationSnapshot.donationCount, language),
+      },
+      {
+        label: copy.supporterFamilies,
+        value: formatLocalizedNumber(donationSnapshot.supporterFamilies, language),
+      },
+    ],
+    [copy.donationEntries, copy.supporterFamilies, copy.totalDonations, donationSnapshot, language],
+  )
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
+      <section className="relative left-1/2 w-screen -translate-x-1/2">
+        <HeroMandirCarousel
+          homeData={homeData}
+          mandirProfile={mandirProfile}
+          language={language}
+          className="rounded-none border-x-0 border-y border-white/10 shadow-none md:mx-4 md:rounded-[44px] md:border md:border-white/12 md:shadow-[0_32px_90px_rgba(0,0,0,0.24)]"
+          minHeightClassName="min-h-[780px] lg:min-h-[calc(100vh-7.75rem)]"
+          renderOverlay={({ slides, displayIndex, setActiveIndex, nextSlide, carouselCopy }) => {
+            const activeSlide = slides[displayIndex] || null
+            const mandirName = mandirProfile?.name || (language === 'hi' ? '\u091c\u0948\u0928 \u092e\u0902\u0926\u093f\u0930' : 'Jain Mandir')
+
+            return (
+              <div className="relative mx-auto flex min-h-[780px] max-w-[1380px] flex-col justify-between px-4 pb-8 pt-8 sm:px-6 sm:pb-10 sm:pt-10 lg:min-h-[calc(100vh-7.75rem)] lg:px-8 lg:pb-12">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="inline-flex rounded-full border border-white/16 bg-white/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-white backdrop-blur-md">
+                    {copy.eyebrow}
+                  </p>
+                  <p className="inline-flex rounded-full border border-white/16 bg-black/18 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/82 backdrop-blur-md">
+                    {mandirProfile?.address || copy.addressFallback}
+                  </p>
+                </div>
+
+                <div className="grid gap-8 xl:grid-cols-[minmax(0,1.08fr)_380px] xl:items-end">
+                  <div className="rounded-[36px] border border-white/12 bg-[linear-gradient(135deg,rgba(18,12,8,0.78),rgba(18,12,8,0.52),rgba(18,12,8,0.22))] p-6 shadow-[0_28px_70px_rgba(0,0,0,0.22)] backdrop-blur-md sm:p-8">
+                    <p className="inline-flex rounded-full border border-orange-200/18 bg-white/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-100 backdrop-blur-sm">
+                      {mandirName}
+                    </p>
+
+                    <h1 className="hero-display mt-6 max-w-4xl text-5xl font-medium leading-[0.92] text-white sm:text-6xl xl:text-7xl">
+                      {copy.heroTitle}
+                    </h1>
+
+                    <p className="mt-6 max-w-2xl text-sm leading-8 text-white/82 sm:text-base">
+                      {mandirName} {copy.heroDescription}
+                    </p>
+
+                    <div className="mt-8 flex flex-wrap gap-3">
+                      <Link
+                        to="/donate"
+                        className="focus-ring rounded-full bg-[linear-gradient(135deg,#c2410c,#f59e0b)] px-6 py-3 text-sm font-bold text-white shadow-[0_18px_34px_rgba(194,65,12,0.34)] transition hover:brightness-105"
+                      >
+                        {copy.offerSeva}
+                      </Link>
+                      <Link
+                        to="/calendar"
+                        className="focus-ring rounded-full border border-white/22 bg-white/10 px-6 py-3 text-sm font-bold text-white backdrop-blur-sm transition hover:bg-white/18"
+                      >
+                        {copy.openDarpan}
+                      </Link>
+                    </div>
+
+                    <div className="mt-8 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-white/16 bg-black/18 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/82 backdrop-blur-sm">
+                        {copy.morningDarshan} 6:00 AM - 11:00 AM
+                      </span>
+                      <span className="rounded-full border border-white/16 bg-black/18 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/82 backdrop-blur-sm">
+                        {copy.eveningDarshan} 5:00 PM - 9:00 PM
+                      </span>
+                    </div>
+
+                    <div className="mt-8 rounded-[28px] border border-white/12 bg-black/24 p-4 backdrop-blur-sm sm:p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-100/88">{carouselCopy.eyebrow}</p>
+                          <h2 className="mt-2 font-serif text-3xl text-white">{activeSlide?.title}</h2>
+                        </div>
+                        {slides.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={nextSlide}
+                            className="focus-ring inline-flex rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-white transition hover:bg-white/18"
+                            aria-label={carouselCopy.nextSlide}
+                          >
+                            {carouselCopy.next}
+                          </button>
+                        )}
+                      </div>
+
+                      <p className="mt-3 max-w-2xl text-sm leading-7 text-white/72">
+                        {activeSlide?.description || copy.dailyRhythmTitle}
+                      </p>
+
+                      <div className="mt-5 flex items-center gap-2">
+                        {slides.map((slide, index) => (
+                          <button
+                            key={`${slide.id || slide.title}-hero-dot`}
+                            type="button"
+                            onClick={() => setActiveIndex(index)}
+                            className={`focus-ring h-2.5 rounded-full transition ${index === displayIndex ? 'w-10 bg-white' : 'w-2.5 bg-white/45 hover:bg-white/70'}`}
+                            aria-label={carouselCopy.goToSlide(index)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="xl:pb-4">
+                    <TodaysTithiWidget />
+                  </div>
+                </div>
+
+                <div className="mt-8 grid gap-3 sm:grid-cols-3 xl:max-w-4xl">
+                  {heroStats.map((item) => (
+                    <div
+                      key={item.label}
+                      className="rounded-[26px] border border-white/14 bg-[linear-gradient(135deg,rgba(18,12,8,0.68),rgba(18,12,8,0.28))] px-5 py-5 shadow-[0_20px_45px_rgba(0,0,0,0.16)] backdrop-blur-md"
+                    >
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-orange-100/78">{item.label}</p>
+                      <p className="mt-3 font-serif text-4xl text-white">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          }}
+        />
+      </section>
+
+      {renderLegacyHero ? (
       <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="relative overflow-hidden rounded-[36px] border border-orange-200/70 bg-[linear-gradient(135deg,rgba(255,252,247,0.92),rgba(255,237,213,0.86),rgba(255,249,242,0.94))] px-6 py-8 shadow-[0_28px_70px_rgba(132,71,21,0.12)] dark:border-orange-900/30 dark:bg-[linear-gradient(135deg,rgba(31,22,18,0.92),rgba(48,28,17,0.78),rgba(20,16,14,0.94))] sm:px-8 sm:py-9">
           <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-orange-300/28 blur-3xl dark:bg-orange-500/14" />
@@ -167,6 +308,7 @@ export function HomePage() {
           <TodaysTithiWidget />
         </div>
       </section>
+      ) : null}
 
       {homeError && (
         <Card className="border-red-200 bg-red-50/78 dark:border-red-900/35 dark:bg-red-950/25">

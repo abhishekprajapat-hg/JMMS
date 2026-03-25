@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { toAbsoluteUrl } from '../api'
 import { Card } from '../components/Card'
 import { PageHeader } from '../components/PageHeader'
 import { useApp } from '../context/AppContext'
@@ -101,7 +102,14 @@ export function ProfilePage() {
   )
 
   const family = userData?.family || userData?.summary?.family || null
-  const receipts = userData?.summary?.receipts || []
+  const receipts = useMemo(() => userData?.summary?.receipts || [], [userData])
+  const receiptForLabel = language === 'hi' ? '\u0930\u0938\u0940\u0926 \u0915\u0947 \u0932\u093f\u090f' : 'Receipt for'
+  const viewReceiptLabel = language === 'hi' ? '\u0930\u0938\u0940\u0926 \u0926\u0947\u0916\u0947\u0902' : 'View Receipt'
+  const downloadPdfLabel = language === 'hi' ? '\u092a\u0940\u0921\u0940\u090f\u092b \u0921\u093e\u0909\u0928\u0932\u094b\u0921 \u0915\u0930\u0947\u0902' : 'Download PDF'
+  const sortedReceipts = useMemo(
+    () => [...receipts].sort((left, right) => String(right.paidAt || '').localeCompare(String(left.paidAt || ''))),
+    [receipts],
+  )
 
   return (
     <div className="space-y-6">
@@ -139,12 +147,23 @@ export function ProfilePage() {
           </div>
         </Card>
 
-        <Card className="bg-[linear-gradient(135deg,#c2410c,#f59e0b)] text-white dark:bg-[linear-gradient(135deg,#9a3412,#d97706)]">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-100/90">{copy.lifetimeSeva}</p>
-          <h2 className="mt-2 font-serif text-4xl">{copy.totalDonations}</h2>
-          <p className="mt-8 text-5xl font-bold">{formatLocalizedCurrency(totalDonations, language)}</p>
-          <p className="mt-3 text-sm leading-7 text-orange-50/90">{copy.totalDonationsBody}</p>
-        </Card>
+        <article
+          className="relative overflow-hidden rounded-[30px] border border-orange-500/30 p-6 text-white shadow-[0_26px_60px_rgba(138,76,24,0.22)]"
+          style={{
+            backgroundImage: 'linear-gradient(135deg, #7c2d12 0%, #c2410c 48%, #f59e0b 100%)',
+          }}
+        >
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.24),transparent_34%)]" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-[linear-gradient(180deg,transparent,rgba(120,53,15,0.24))]" />
+          <div className="relative">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-50/90">{copy.lifetimeSeva}</p>
+            <h2 className="mt-2 font-serif text-4xl text-white">{copy.totalDonations}</h2>
+            <p className="mt-8 text-5xl font-bold text-white drop-shadow-[0_10px_24px_rgba(120,53,15,0.35)]">
+              {formatLocalizedCurrency(totalDonations, language)}
+            </p>
+            <p className="mt-3 max-w-md text-sm leading-7 text-orange-50/90">{copy.totalDonationsBody}</p>
+          </div>
+        </article>
       </section>
 
       <Card>
@@ -229,16 +248,49 @@ export function ProfilePage() {
       <Card>
         <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-700 dark:text-orange-300">{copy.receipts}</p>
         <h2 className="mt-2 font-serif text-3xl text-orange-950 dark:text-amber-50">{copy.receiptArchive}</h2>
-        {receipts.length === 0 ? (
+        {sortedReceipts.length === 0 ? (
           <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-300">{copy.noReceipts}</p>
         ) : (
           <ul className="mt-4 space-y-3 text-sm">
-            {receipts.slice(0, 8).map((receipt) => (
-              <li key={receipt.transactionId} className="rounded-[22px] border border-orange-200/70 bg-white/72 px-4 py-3 dark:border-orange-900/30 dark:bg-white/5">
-                <p className="font-semibold text-zinc-800 dark:text-zinc-100">{receipt.receiptNumber || receipt.transactionId}</p>
-                <p className="text-zinc-600 dark:text-zinc-300">{formatLocalizedDate(receipt.paidAt, language, { day: '2-digit', month: 'short', year: 'numeric' })} | {formatLocalizedCurrency(receipt.amount, language)}</p>
-              </li>
-            ))}
+            {sortedReceipts.map((receipt) => {
+              const receiptUrl = toAbsoluteUrl(receipt.receiptPath)
+
+              return (
+                <li key={receipt.transactionId} className="rounded-[22px] border border-orange-200/70 bg-white/72 px-4 py-4 dark:border-orange-900/30 dark:bg-white/5">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-semibold text-zinc-800 dark:text-zinc-100">{receipt.receiptNumber || receipt.transactionId}</p>
+                      <p className="mt-1 text-zinc-600 dark:text-zinc-300">
+                        {formatLocalizedDate(receipt.paidAt, language, { day: '2-digit', month: 'short', year: 'numeric' })} | {formatLocalizedCurrency(receipt.amount, language)}
+                      </p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.12em] text-orange-700 dark:text-orange-300">
+                        {receiptForLabel} {translateValue(language, receipt.fundCategory || '-')}
+                      </p>
+                    </div>
+
+                    {receiptUrl ? (
+                      <div className="flex flex-wrap gap-2">
+                        <a
+                          href={receiptUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="focus-ring rounded-full bg-[linear-gradient(135deg,#c2410c,#f59e0b)] px-4 py-2 font-semibold text-white transition hover:brightness-105"
+                        >
+                          {viewReceiptLabel}
+                        </a>
+                        <a
+                          href={receiptUrl}
+                          download
+                          className="focus-ring rounded-full border border-orange-300 px-4 py-2 font-semibold text-orange-900 transition hover:bg-orange-50 dark:border-orange-800 dark:text-orange-200 dark:hover:bg-orange-950/20"
+                        >
+                          {downloadPdfLabel}
+                        </a>
+                      </div>
+                    ) : null}
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         )}
       </Card>
