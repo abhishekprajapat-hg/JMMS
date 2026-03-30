@@ -18,6 +18,7 @@ export function Navbar() {
     isAuthenticated,
     logout,
     darkMode,
+    mandirProfile,
     toggleDarkMode,
     language,
     toggleLanguage,
@@ -99,6 +100,7 @@ export function Navbar() {
   })
 
   const navItems = useMemo(() => copy.items, [copy.items])
+  const brandLabel = mandirProfile?.name || copy.brand
 
   function handleSearchSubmit(event) {
     event.preventDefault()
@@ -117,7 +119,7 @@ export function Navbar() {
                 {'\u0950'}
               </span>
               <div className="min-w-0">
-                <p className="truncate font-serif text-[1.55rem] leading-none text-orange-950 dark:text-amber-50">{copy.brand}</p>
+                <p className="truncate font-serif text-[1.55rem] leading-none text-orange-950 dark:text-amber-50">{brandLabel}</p>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-orange-700 dark:text-orange-300">
                   {copy.values.map((value, index) => (
                     <span key={value} className="contents">

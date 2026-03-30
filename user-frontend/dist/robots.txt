@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+
+Disallow: /login
+Disallow: /signup
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /profile
+Disallow: /donation
+Disallow: /events
+
+Sitemap: https://nemnidhi.tech/sitemap.xml
