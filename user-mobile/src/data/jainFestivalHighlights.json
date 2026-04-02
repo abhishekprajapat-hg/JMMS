@@ -1,0 +1,44 @@
+[
+  {
+    "id": "mahavir-jayanti",
+    "name": "Mahavir Jayanti",
+    "period": "Chaitra Sud 13",
+    "description": "Birth celebration of Bhagwan Mahavir with temple processions, scriptural readings, and seva.",
+    "rituals": "Snatra puja, Navkar Mantra jap, and daan to community welfare."
+  },
+  {
+    "id": "paryushan",
+    "name": "Paryushan",
+    "period": "8 Sacred Days",
+    "description": "A period of intense introspection, fasting, forgiveness, and spiritual discipline.",
+    "rituals": "Daily pratikraman, svadhyay, ekasana or upvas, and ahimsa-focused conduct."
+  },
+  {
+    "id": "samvatsari",
+    "name": "Samvatsari",
+    "period": "Final Day of Paryushan",
+    "description": "The supreme day of universal forgiveness and soul purification.",
+    "rituals": "Samvatsari pratikraman and seeking forgiveness with 'Michhami Dukkadam'."
+  },
+  {
+    "id": "ayambil-oli",
+    "name": "Ayambil Oli",
+    "period": "9 Days (Twice a Year)",
+    "description": "Nine-day austerity focused on restrained food and devotional practice.",
+    "rituals": "Ayambil fasting, Navpad worship, and mantra chanting."
+  },
+  {
+    "id": "diwali-mahavir-nirvana",
+    "name": "Diwali (Mahavir Nirvana)",
+    "period": "Aaso Vad Amavasya",
+    "description": "Commemorates the nirvana of Bhagwan Mahavir and the light of spiritual awakening.",
+    "rituals": "Nirvana laddu offering, deep daan, and scripture recitation."
+  },
+  {
+    "id": "kartik-poonam",
+    "name": "Kartik Poonam",
+    "period": "Kartik Sud 15",
+    "description": "A highly auspicious full-moon day dedicated to worship, charity, and pilgrimage.",
+    "rituals": "Temple darshan, snatra puja, and disciplined devotional practices."
+  }
+]
