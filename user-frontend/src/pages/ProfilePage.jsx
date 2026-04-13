@@ -50,7 +50,6 @@ export function ProfilePage() {
     currentUser,
     userData,
     userDonations,
-    totalDonations,
     addDonation,
     fetchLibrary,
     language,
@@ -93,7 +92,7 @@ export function ProfilePage() {
     en: {
       eyebrow: 'Dashboard',
       title: 'User Profile',
-      description: 'Your profile details, total donations, history, saved reading, and watch activity in one richer dashboard.',
+      description: 'Your profile details, donation history, saved reading, and watch activity in one richer dashboard.',
       profileDetails: 'Profile Details',
       devoteeAccount: 'Devotee Account',
       email: 'Email',
@@ -101,9 +100,6 @@ export function ProfilePage() {
       familyId: 'Family ID',
       gotra: 'Gotra',
       mandirId: 'Mandir ID',
-      lifetimeSeva: 'Lifetime Seva',
-      totalDonations: 'Total Donations',
-      totalDonationsBody: 'A single view of your paid contributions and devotional support for mandir activities.',
       history: 'History',
       donationHistory: 'Donation history',
       entries: (count) => `${formatLocalizedNumber(count, language)} entries`,
@@ -190,9 +186,6 @@ export function ProfilePage() {
       familyId: '?????? ID',
       gotra: '?????',
       mandirId: '????? ID',
-      lifetimeSeva: '????? ????',
-      totalDonations: '??? ???',
-      totalDonationsBody: '????? ?????????? ?? ??? ???? ?????? ??? ?? ?????? ?? ????????????? ????? ?? ?? ??? ??????',
       history: '??????',
       donationHistory: '??? ??????',
       entries: (count) => `${formatLocalizedNumber(count, language)} ????????????`,
@@ -519,7 +512,7 @@ export function ProfilePage() {
         description={copy.description}
       />
 
-      <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+      <section className="grid gap-5">
         <Card>
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-700 dark:text-orange-300">{copy.profileDetails}</p>
           <h2 className="mt-2 font-serif text-4xl text-orange-950 dark:text-amber-50">{currentUser?.name || copy.devoteeAccount}</h2>
@@ -546,24 +539,6 @@ export function ProfilePage() {
             </div>
           </div>
         </Card>
-
-        <article
-          className="relative overflow-hidden rounded-[30px] border border-orange-500/30 p-6 text-white shadow-[0_26px_60px_rgba(138,76,24,0.22)]"
-          style={{
-            backgroundImage: 'linear-gradient(135deg, #7c2d12 0%, #c2410c 48%, #f59e0b 100%)',
-          }}
-        >
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.24),transparent_34%)]" />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-[linear-gradient(180deg,transparent,rgba(120,53,15,0.24))]" />
-          <div className="relative">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-50/90">{copy.lifetimeSeva}</p>
-            <h2 className="mt-2 font-serif text-4xl text-white">{copy.totalDonations}</h2>
-            <p className="mt-8 text-5xl font-bold text-white drop-shadow-[0_10px_24px_rgba(120,53,15,0.35)]">
-              {formatLocalizedCurrency(totalDonations, language)}
-            </p>
-            <p className="mt-3 max-w-md text-sm leading-7 text-orange-50/90">{copy.totalDonationsBody}</p>
-          </div>
-        </article>
       </section>
 
       <Card>

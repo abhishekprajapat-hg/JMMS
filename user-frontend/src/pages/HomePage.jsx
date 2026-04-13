@@ -376,15 +376,6 @@ export function HomePage() {
       .slice(0, 4)
   }, [fallbackContent.announcements, homeData])
 
-  const donationSnapshot = useMemo(
-    () => homeData?.donationSnapshot || {
-      totalAmount: 0,
-      donationCount: 0,
-      supporterFamilies: 0,
-    },
-    [homeData],
-  )
-
   const featuredBooks = useMemo(() => {
     const backendBooks = Array.isArray(homeData?.featured?.ebooks) ? homeData.featured.ebooks : []
     const source = backendBooks.length ? backendBooks : fallbackContent.books
@@ -398,10 +389,6 @@ export function HomePage() {
   }, [copy.defaultVideoCategory, fallbackContent.videos, homeData])
 
   const heroFooterStats = [
-    {
-      label: copy.totalDonations,
-      value: formatLocalizedCurrency(donationSnapshot.totalAmount, language),
-    },
     {
       label: copy.festivalsAhead,
       value: formatLocalizedNumber(upcomingFestivals.length, language),
@@ -493,7 +480,7 @@ export function HomePage() {
                     </div>
 
                     <div className="flex flex-col gap-4 lg:items-end">
-                      <div className="grid gap-3 sm:grid-cols-2 lg:w-[320px]">
+                      <div className="grid gap-3 lg:w-[220px]">
                         {heroFooterStats.map((item) => (
                           <div
                             key={item.label}

@@ -1136,7 +1136,7 @@ export function EventsModule({
             className={`events-tab-btn${activeDataTab === 'events' ? ' active' : ''}`}
             onClick={() => setActiveDataTab('events')}
           >
-            Events ({events.length})
+            Events ({filteredEvents.length})
           </button>
           <button
             type="button"
@@ -1150,7 +1150,7 @@ export function EventsModule({
             className={`events-tab-btn${activeDataTab === 'registrations' ? ' active' : ''}`}
             onClick={() => setActiveDataTab('registrations')}
           >
-            Registrations ({registrations.length})
+            Registrations ({filteredRegistrations.length})
           </button>
           <button
             type="button"
