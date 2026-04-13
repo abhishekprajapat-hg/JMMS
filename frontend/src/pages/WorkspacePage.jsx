@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   EVENT_HALLS,
   EXPENSE_CATEGORIES,
@@ -62,12 +62,20 @@ const MODULE_ROUTE_MAP = {
 
 function getModuleFromPathname(pathname) {
   const cleanPath = String(pathname || '/dashboard').split('?')[0].replace(/\/+$/, '') || '/dashboard'
-  const found = Object.entries(MODULE_ROUTE_MAP).find(([, path]) => path === cleanPath)
+  const found = Object.entries(MODULE_ROUTE_MAP).find(([, path]) => cleanPath === path || cleanPath.startsWith(`${path}/`))
   return found?.[0] || 'dashboard'
 }
 
 function getPathForModule(moduleId) {
   return MODULE_ROUTE_MAP[moduleId] || MODULE_ROUTE_MAP.dashboard
+}
+
+function getSubRouteId(pathname, prefix) {
+  const cleanPath = String(pathname || '').split('?')[0].replace(/\/+$/, '')
+  const expectedPrefix = `${prefix}/`
+  if (!cleanPath.startsWith(expectedPrefix)) return ''
+  const remainder = cleanPath.slice(expectedPrefix.length)
+  return decodeURIComponent(remainder.split('/')[0] || '')
 }
 
 function shouldShowModule(moduleId, permissions) {
@@ -132,6 +140,7 @@ function getBookingEndDate(booking = {}) {
 export function WorkspacePage() {
   const navigate = useNavigate()
   const location = useLocation()
+  const routeParams = useParams()
   const routeModule = useMemo(() => getModuleFromPathname(location.pathname), [location.pathname])
   const [authToken, setAuthToken] = useState(() => window.localStorage.getItem(TOKEN_STORAGE_KEY) || '')
   const [refreshToken, setRefreshToken] = useState(() => window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY) || '')
@@ -1680,6 +1689,15 @@ export function WorkspacePage() {
     [],
   )
 
+  const selectedFinanceTransactionId =
+    routeModule === 'finance'
+      ? routeParams.id || getSubRouteId(location.pathname, '/finance/transactions')
+      : ''
+  const selectedPaymentIntentId =
+    routeModule === 'payments'
+      ? routeParams.id || getSubRouteId(location.pathname, '/payments/intents')
+      : ''
+
   function handleModuleTabClick(moduleId) {
     const targetPath = getPathForModule(moduleId)
     if (location.pathname !== targetPath) {
@@ -1687,6 +1705,22 @@ export function WorkspacePage() {
     }
     setActiveModule(moduleId)
     setIsMoreMenuOpen(false)
+  }
+
+  function handleOpenFinanceTransaction(transactionId) {
+    if (!transactionId) {
+      navigate('/finance')
+      return
+    }
+    navigate(`/finance/transactions/${encodeURIComponent(String(transactionId))}`)
+  }
+
+  function handleOpenPaymentIntent(intentId) {
+    if (!intentId) {
+      navigate('/payments')
+      return
+    }
+    navigate(`/payments/intents/${encodeURIComponent(String(intentId))}`)
   }
 
   function formatDashboardAmount(value) {
@@ -1965,6 +1999,8 @@ export function WorkspacePage() {
               cancellationLogs={cancellationLogs}
               approvalQueue={approvalQueue}
               handleApprovalDecision={handleApprovalDecision}
+              selectedTransactionId={selectedFinanceTransactionId}
+              onOpenTransaction={handleOpenFinanceTransaction}
             />
           )}
 
@@ -1977,6 +2013,8 @@ export function WorkspacePage() {
               permissions={permissions}
               onNotice={showNotice}
               onRefreshTransactions={refreshTransactions}
+              selectedIntentId={selectedPaymentIntentId}
+              onOpenIntent={handleOpenPaymentIntent}
             />
           )}
 

@@ -18,7 +18,9 @@ function App() {
         <Route path="/dashboard" element={<WorkspacePage />} />
         <Route path="/directory" element={<WorkspacePage />} />
         <Route path="/finance" element={<WorkspacePage />} />
+        <Route path="/finance/transactions/:id" element={<WorkspacePage />} />
         <Route path="/payments" element={<WorkspacePage />} />
+        <Route path="/payments/intents/:id" element={<WorkspacePage />} />
         <Route path="/portal" element={<WorkspacePage />} />
         <Route path="/expenses" element={<WorkspacePage />} />
         <Route path="/accounting" element={<WorkspacePage />} />

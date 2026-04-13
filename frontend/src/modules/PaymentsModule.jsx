@@ -11,6 +11,15 @@ const PAYMENT_PAGES = [
   { id: 'verification', label: 'Verify Payments', hint: 'Approve or reject' },
 ]
 
+function getIntentStatusClass(status) {
+  const normalized = String(status || '').toLowerCase()
+  if (normalized === 'success') return 'is-success'
+  if (normalized === 'failed') return 'is-failed'
+  if (normalized === 'proof submitted') return 'is-proof'
+  if (normalized === 'pending') return 'is-pending'
+  return 'is-default'
+}
+
 function getInitialForm(families, gateways, transactions) {
   const firstFamilyId = families[0]?.familyId || ''
   const firstGateway = gateways[0] || ''
@@ -71,6 +80,8 @@ export function PaymentsModule({
   permissions,
   onNotice,
   onRefreshTransactions,
+  selectedIntentId,
+  onOpenIntent,
 }) {
   const [activePage, setActivePage] = useState('setup')
   const [intents, setIntents] = useState([])
@@ -84,6 +95,9 @@ export function PaymentsModule({
     payerName: '',
   })
   const [latestInstructions, setLatestInstructions] = useState(null)
+  const [intentQuery, setIntentQuery] = useState('')
+  const [intentStatusFilter, setIntentStatusFilter] = useState('all')
+  const [intentCategoryFilter, setIntentCategoryFilter] = useState('all')
 
   const familyLookup = useMemo(
     () => Object.fromEntries(families.map((family) => [family.familyId, family.headName])),
@@ -141,6 +155,57 @@ export function PaymentsModule({
         .reduce((sum, intent) => sum + (Number(intent.amount) || 0), 0),
     [enrichedIntents],
   )
+  const selectedIntent = useMemo(
+    () => (selectedIntentId ? enrichedIntents.find((intent) => intent.id === selectedIntentId) || null : null),
+    [enrichedIntents, selectedIntentId],
+  )
+  const visibleIntents = useMemo(() => {
+    const query = String(intentQuery || '').trim().toLowerCase()
+    return enrichedIntents.filter((intent) => {
+      if (intentCategoryFilter !== 'all' && intent.paymentCategory !== intentCategoryFilter) return false
+      if (intentStatusFilter !== 'all' && String(intent.status || '') !== intentStatusFilter) return false
+      if (!query) return true
+
+      const familyLabel = familyLookup[intent.familyId] || ''
+      const haystack = [
+        intent.id,
+        intent.familyId,
+        familyLabel,
+        intent.payerUtr,
+        intent.linkedTransactionId,
+        intent.gateway,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(query)
+    })
+  }, [enrichedIntents, intentCategoryFilter, intentStatusFilter, intentQuery, familyLookup])
+  const visibleEventIntents = useMemo(
+    () => visibleIntents.filter((intent) => intent.paymentCategory === 'event_registration'),
+    [visibleIntents],
+  )
+  const visibleDonationIntents = useMemo(
+    () => visibleIntents.filter((intent) => intent.paymentCategory !== 'event_registration'),
+    [visibleIntents],
+  )
+  const visiblePendingIntents = useMemo(
+    () => visibleIntents.filter((intent) => ['Pending', 'Proof Submitted'].includes(intent.status)),
+    [visibleIntents],
+  )
+  const visiblePendingEventIntents = useMemo(
+    () => visibleEventIntents.filter((intent) => ['Pending', 'Proof Submitted'].includes(intent.status)),
+    [visibleEventIntents],
+  )
+  const visiblePendingDonationIntents = useMemo(
+    () => visibleDonationIntents.filter((intent) => ['Pending', 'Proof Submitted'].includes(intent.status)),
+    [visibleDonationIntents],
+  )
+  const visibleProofSubmittedCount = useMemo(
+    () => visibleIntents.filter((intent) => intent.status === 'Proof Submitted').length,
+    [visibleIntents],
+  )
+  const hasActiveIntentFilters = intentQuery.trim() || intentStatusFilter !== 'all' || intentCategoryFilter !== 'all'
 
   async function loadIntents() {
     if (!authToken) return
@@ -203,6 +268,24 @@ export function PaymentsModule({
           : pendingIntent?.id || '',
     }))
   }, [intents, pendingIntents])
+
+  useEffect(() => {
+    if (!selectedIntentId) return
+    setActivePage('verification')
+  }, [selectedIntentId])
+
+  function formatDateTime(value) {
+    if (!value) return '-'
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return '-'
+    return parsed.toLocaleString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
 
   async function handleSavePortalConfig(event) {
     event.preventDefault()
@@ -385,9 +468,9 @@ export function PaymentsModule({
   }
 
   function getPageCount(pageId) {
-    if (pageId === 'setup') return intents.length
-    if (pageId === 'proof') return pendingIntents.length
-    if (pageId === 'verification') return proofSubmittedCount
+    if (pageId === 'setup') return visibleIntents.length
+    if (pageId === 'proof') return visiblePendingIntents.length
+    if (pageId === 'verification') return visibleProofSubmittedCount
     return 0
   }
 
@@ -398,17 +481,34 @@ export function PaymentsModule({
         ? 'Collect UTR evidence and push entries into reviewer queue.'
         : 'Review event and donation queues separately, then approve or reject.'
 
+  function clearIntentFilters() {
+    setIntentQuery('')
+    setIntentStatusFilter('all')
+    setIntentCategoryFilter('all')
+  }
+
   return (
-    <section className="panel-grid payments-page-layout">
+    <section
+      className={
+        selectedIntentId
+          ? 'panel-grid payments-page-layout payments-page-layout-with-detail'
+          : 'panel-grid payments-page-layout'
+      }
+    >
       <article className="panel payments-shell">
         <div className="payments-shell-head">
           <div className="panel-head">
             <h2>Payments Command Center</h2>
             <p>Focused workspace for setup, proof collection, and final verification.</p>
           </div>
-          <div className="payments-live-state">
-            <span className={`payments-live-dot${loading ? ' is-loading' : ''}`} />
-            <span>{loading ? 'Refreshing...' : 'Live status sync on'}</span>
+          <div className="payments-shell-actions">
+            <div className="payments-live-state">
+              <span className={`payments-live-dot${loading ? ' is-loading' : ''}`} />
+              <span>{loading ? 'Refreshing...' : 'Live status sync on'}</span>
+            </div>
+            <button type="button" className="secondary-btn" onClick={loadIntents} disabled={loading}>
+              {loading ? 'Refreshing...' : 'Refresh Intents'}
+            </button>
           </div>
         </div>
 
@@ -452,8 +552,178 @@ export function PaymentsModule({
           ))}
         </div>
 
+        <div className="payments-toolbar">
+          <label className="payments-toolbar-field">
+            Search Intent
+            <input
+              value={intentQuery}
+              onChange={(event) => setIntentQuery(event.target.value)}
+              placeholder="ID, UTR, family, linked transaction"
+            />
+          </label>
+          <label className="payments-toolbar-field">
+            Status
+            <select
+              value={intentStatusFilter}
+              onChange={(event) => setIntentStatusFilter(event.target.value)}
+            >
+              <option value="all">All statuses</option>
+              <option value="Pending">Pending</option>
+              <option value="Proof Submitted">Proof Submitted</option>
+              <option value="Success">Success</option>
+              <option value="Failed">Failed</option>
+            </select>
+          </label>
+          <label className="payments-toolbar-field">
+            Category
+            <select
+              value={intentCategoryFilter}
+              onChange={(event) => setIntentCategoryFilter(event.target.value)}
+            >
+              <option value="all">All categories</option>
+              <option value="donation">Donation / Other</option>
+              <option value="event_registration">Event Registration</option>
+            </select>
+          </label>
+          <div className="payments-toolbar-actions">
+            <span className="hint">Showing {visibleIntents.length} intents</span>
+            {hasActiveIntentFilters ? (
+              <button type="button" className="secondary-btn" onClick={clearIntentFilters}>
+                Clear Filters
+              </button>
+            ) : null}
+          </div>
+        </div>
+
         <p className="hint payments-page-hint">{activePageHint}</p>
       </article>
+
+      {selectedIntentId && (
+        <article className="panel payments-page-card payments-intent-detail-card">
+          <div className="payments-intent-detail-head">
+            <h2>Payment Intent Details</h2>
+            <div className="payments-intent-detail-meta">
+              <span className="payments-text-mono">{selectedIntent ? selectedIntent.id : selectedIntentId}</span>
+              {selectedIntent ? (
+                <span className={`payments-status-badge ${getIntentStatusClass(selectedIntent.status)}`}>
+                  {selectedIntent.status}
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          {selectedIntent ? (
+            <div className="stack-form">
+              <div className="payments-intent-detail-stats">
+                <div>
+                  <span>Status</span>
+                  <strong>{selectedIntent.status || '-'}</strong>
+                  <small>{selectedIntent.paymentCategory === 'event_registration' ? 'event registration' : 'donation'}</small>
+                </div>
+                <div>
+                  <span>Amount</span>
+                  <strong>{formatCurrency(selectedIntent.amount)}</strong>
+                  <small>gateway: {selectedIntent.gateway || '-'}</small>
+                </div>
+                <div>
+                  <span>Family</span>
+                  <strong>{familyLookup[selectedIntent.familyId] || selectedIntent.familyId || '-'}</strong>
+                  <small>linked txn: {selectedIntent.linkedTransactionId || '-'}</small>
+                </div>
+                <div>
+                  <span>UTR</span>
+                  <strong>{selectedIntent.payerUtr || '-'}</strong>
+                  <small>provider ref: {selectedIntent.providerReference || '-'}</small>
+                </div>
+              </div>
+
+              <div className="table-wrap compact">
+                <table>
+                  <tbody>
+                    <tr>
+                      <th>Payment ID</th>
+                      <td className="payments-text-mono">{selectedIntent.id}</td>
+                    </tr>
+                    <tr>
+                      <th>Source</th>
+                      <td>{selectedIntent.source || '-'}</td>
+                    </tr>
+                    <tr>
+                      <th>Note</th>
+                      <td>{selectedIntent.note || '-'}</td>
+                    </tr>
+                    <tr>
+                      <th>Payer Name</th>
+                      <td>{selectedIntent.payerName || '-'}</td>
+                    </tr>
+                    <tr>
+                      <th>Initiated</th>
+                      <td>{formatDateTime(selectedIntent.initiatedAt)}</td>
+                    </tr>
+                    <tr>
+                      <th>Proof Submitted</th>
+                      <td>{formatDateTime(selectedIntent.proofSubmittedAt)}</td>
+                    </tr>
+                    <tr>
+                      <th>Reconciled</th>
+                      <td>{formatDateTime(selectedIntent.reconciledAt)}</td>
+                    </tr>
+                    <tr>
+                      <th>Failure Reason</th>
+                      <td>{selectedIntent.failureReason || '-'}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="action-row">
+                <button type="button" className="secondary-btn" onClick={() => onOpenIntent('')}>
+                  Back to Payments
+                </button>
+                {['Pending', 'Proof Submitted'].includes(selectedIntent.status) && permissions.reconcilePayments ? (
+                  <>
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      onClick={() => reconcileIntent(selectedIntent.id, 'success')}
+                      disabled={loading}
+                    >
+                      Verify + Settle
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      onClick={() => reconcileIntent(selectedIntent.id, 'failed')}
+                      disabled={loading}
+                    >
+                      Reject
+                    </button>
+                  </>
+                ) : null}
+                {selectedIntent.status === 'Success' && permissions.reconcilePayments ? (
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={() => resendReceipt(selectedIntent.id)}
+                    disabled={loading}
+                  >
+                    Resend Receipt
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <div className="stack-form">
+              <p className="hint">{loading ? 'Loading payment intent...' : 'No payment intent found for this ID.'}</p>
+              <div className="action-row">
+                <button type="button" className="secondary-btn" onClick={() => onOpenIntent('')}>
+                  Back to Payments
+                </button>
+              </div>
+            </div>
+          )}
+        </article>
+      )}
 
       {activePage === 'setup' && (
         <PaymentsSetupPage
@@ -473,26 +743,28 @@ export function PaymentsModule({
       )}
 
       {activePage === 'proof' && (
-        <PaymentsProofPage
-          loading={loading}
-          proofForm={proofForm}
-          setProofForm={setProofForm}
-          onSubmitProof={handleSubmitProof}
-          pendingIntents={pendingIntents}
-          pendingEventIntents={pendingEventIntents}
-          pendingDonationIntents={pendingDonationIntents}
-        />
+          <PaymentsProofPage
+            loading={loading}
+            proofForm={proofForm}
+            setProofForm={setProofForm}
+            onSubmitProof={handleSubmitProof}
+            pendingIntents={visiblePendingIntents}
+            pendingEventIntents={visiblePendingEventIntents}
+            pendingDonationIntents={visiblePendingDonationIntents}
+            onOpenIntent={onOpenIntent}
+          />
       )}
 
       {activePage === 'verification' && (
         <PaymentsVerificationPage
-          eventRegistrationIntents={eventRegistrationIntents}
-          donationIntents={donationIntents}
+          eventRegistrationIntents={visibleEventIntents}
+          donationIntents={visibleDonationIntents}
           familyLookup={familyLookup}
           loading={loading}
           permissions={permissions}
           onReconcile={reconcileIntent}
           onResendReceipt={resendReceipt}
+          onOpenIntent={onOpenIntent}
         />
       )}
     </section>

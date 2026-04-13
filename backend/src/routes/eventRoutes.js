@@ -13,6 +13,40 @@ const {
 
 const router = express.Router()
 
+function hasValue(value) {
+  return value !== undefined && value !== null && String(value).trim() !== ''
+}
+
+function ensureNonNegativeNumber(value) {
+  const number = Number(value)
+  return Number.isFinite(number) && number >= 0 ? number : null
+}
+
+function normalizeSubEvents(event) {
+  if (!Array.isArray(event?.subEvents)) return []
+  return event.subEvents
+    .map((subEvent) => ({
+      ...subEvent,
+      feePerFamily: ensureNonNegativeNumber(subEvent.feePerFamily) || 0,
+    }))
+    .sort((left, right) => {
+      const dateCompare = String(left.date || '').localeCompare(String(right.date || ''))
+      if (dateCompare !== 0) return dateCompare
+      return String(left.name || '').localeCompare(String(right.name || ''))
+    })
+}
+
+function findTenantEvent(db, { eventId, mandirId }) {
+  return db.events.find((item) => item.id === eventId && getRecordMandirId(item) === mandirId) || null
+}
+
+function formatEventResponse(event, registrations) {
+  return withSeatStats([event], registrations).map((item) => ({
+    ...item,
+    subEvents: normalizeSubEvents(item),
+  }))[0]
+}
+
 function withSeatStats(events, registrations) {
   return events.map((event) => {
     const seatsBooked = getEventSeatsBooked(registrations, {
@@ -33,9 +67,14 @@ router.get('/', authorizeAny(['manageEvents', 'viewSchedule', 'accessDevoteePort
   const mandirId = resolveMandirId(req, db)
   const tenantEvents = filterByMandir(db.events, mandirId)
   const tenantRegistrations = filterByMandir(db.eventRegistrations, mandirId)
-  const events = withSeatStats(tenantEvents, tenantRegistrations).sort((a, b) =>
+  const events = withSeatStats(tenantEvents, tenantRegistrations)
+    .map((event) => ({
+      ...event,
+      subEvents: normalizeSubEvents(event),
+    }))
+    .sort((a, b) =>
     String(a.date).localeCompare(String(b.date)),
-  )
+    )
 
   res.json({
     halls: EVENT_HALLS,
@@ -75,6 +114,7 @@ router.post('/', authorize('manageEvents'), async (req, res, next) => {
       feePerFamily,
       resourceRequirements,
       notes,
+      subEvents: [],
       createdAt: new Date().toISOString(),
       createdBy: req.user.fullName,
     }, mandirId)
@@ -83,6 +123,181 @@ router.post('/', authorize('manageEvents'), async (req, res, next) => {
     await saveDb()
 
     return res.status(201).json({ event })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+router.post('/:eventId/sub-events', authorize('manageEvents'), async (req, res, next) => {
+  try {
+    const db = getDb()
+    const mandirId = resolveMandirId(req, db)
+    const parentEvent = findTenantEvent(db, {
+      eventId: req.params.eventId,
+      mandirId,
+    })
+    if (!parentEvent) throw notFound('Event not found.')
+
+    const name = ensureRequiredString(req.body?.name)
+    const date = ensureRequiredString(req.body?.date) || parentEvent.date
+    const hall = ensureRequiredString(req.body?.hall) || parentEvent.hall
+    const capacityInput = req.body?.capacity
+    const capacity = hasValue(capacityInput)
+      ? ensurePositiveInteger(capacityInput)
+      : ensurePositiveInteger(parentEvent.capacity)
+    const feeInput = req.body?.feePerFamily
+    const feePerFamily = hasValue(feeInput)
+      ? ensureNonNegativeNumber(feeInput)
+      : 0
+    const notes = ensureRequiredString(req.body?.notes)
+
+    if (!name) {
+      throw badRequest('Sub-event name is required.')
+    }
+    if (!date || !hall || !capacity) {
+      throw badRequest('Sub-event date, hall, and capacity are required.')
+    }
+    if (hasValue(capacityInput) && !capacity) {
+      throw badRequest('Sub-event capacity must be a positive integer.')
+    }
+    if (!EVENT_HALLS.includes(hall)) {
+      throw badRequest('Invalid hall selection.')
+    }
+    if (hasValue(feeInput) && feePerFamily === null) {
+      throw badRequest('Sub-event fee must be a non-negative number.')
+    }
+
+    const subEvent = {
+      id: createId('SUB'),
+      name,
+      date,
+      hall,
+      capacity,
+      feePerFamily: feePerFamily ?? 0,
+      notes,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdBy: req.user?.fullName || req.user?.username || 'staff_console',
+      updatedBy: req.user?.fullName || req.user?.username || 'staff_console',
+    }
+
+    if (!Array.isArray(parentEvent.subEvents)) {
+      parentEvent.subEvents = []
+    }
+    parentEvent.subEvents.unshift(subEvent)
+    await saveDb()
+
+    const tenantRegistrations = filterByMandir(db.eventRegistrations, mandirId)
+    return res.status(201).json({
+      subEvent,
+      event: formatEventResponse(parentEvent, tenantRegistrations),
+    })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+router.patch('/:eventId/sub-events/:subEventId', authorize('manageEvents'), async (req, res, next) => {
+  try {
+    const db = getDb()
+    const mandirId = resolveMandirId(req, db)
+    const parentEvent = findTenantEvent(db, {
+      eventId: req.params.eventId,
+      mandirId,
+    })
+    if (!parentEvent) throw notFound('Event not found.')
+
+    if (!Array.isArray(parentEvent.subEvents)) {
+      parentEvent.subEvents = []
+    }
+
+    const subEvent = parentEvent.subEvents.find((item) => item.id === req.params.subEventId)
+    if (!subEvent) {
+      throw notFound('Sub-event not found.')
+    }
+
+    const nameInput = req.body?.name
+    const dateInput = req.body?.date
+    const hallInput = req.body?.hall
+    const capacityInput = req.body?.capacity
+    const feeInput = req.body?.feePerFamily
+    const notesInput = req.body?.notes
+    const hasNotesInput = notesInput !== undefined && notesInput !== null
+
+    if (hasValue(capacityInput) && !ensurePositiveInteger(capacityInput)) {
+      throw badRequest('Sub-event capacity must be a positive integer.')
+    }
+
+    if (hasValue(feeInput) && ensureNonNegativeNumber(feeInput) === null) {
+      throw badRequest('Sub-event fee must be a non-negative number.')
+    }
+
+    const nextName = hasValue(nameInput) ? ensureRequiredString(nameInput) : subEvent.name
+    const nextDate = hasValue(dateInput) ? ensureRequiredString(dateInput) : (subEvent.date || parentEvent.date)
+    const nextHall = hasValue(hallInput) ? ensureRequiredString(hallInput) : (subEvent.hall || parentEvent.hall)
+    const nextCapacity = hasValue(capacityInput)
+      ? ensurePositiveInteger(capacityInput)
+      : (ensurePositiveInteger(subEvent.capacity) || ensurePositiveInteger(parentEvent.capacity))
+    const nextFeePerFamily = hasValue(feeInput)
+      ? ensureNonNegativeNumber(feeInput)
+      : (ensureNonNegativeNumber(subEvent.feePerFamily) || 0)
+    const nextNotes = hasNotesInput ? ensureRequiredString(notesInput) : ensureRequiredString(subEvent.notes)
+
+    if (!nextName || !nextDate || !nextHall || !nextCapacity) {
+      throw badRequest('Sub-event name, date, hall, and capacity are required.')
+    }
+    if (!EVENT_HALLS.includes(nextHall)) {
+      throw badRequest('Invalid hall selection.')
+    }
+
+    subEvent.name = nextName
+    subEvent.date = nextDate
+    subEvent.hall = nextHall
+    subEvent.capacity = nextCapacity
+    subEvent.feePerFamily = nextFeePerFamily ?? 0
+    subEvent.notes = nextNotes
+    subEvent.updatedAt = new Date().toISOString()
+    subEvent.updatedBy = req.user?.fullName || req.user?.username || 'staff_console'
+
+    await saveDb()
+
+    const tenantRegistrations = filterByMandir(db.eventRegistrations, mandirId)
+    return res.json({
+      subEvent,
+      event: formatEventResponse(parentEvent, tenantRegistrations),
+    })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+router.delete('/:eventId/sub-events/:subEventId', authorize('manageEvents'), async (req, res, next) => {
+  try {
+    const db = getDb()
+    const mandirId = resolveMandirId(req, db)
+    const parentEvent = findTenantEvent(db, {
+      eventId: req.params.eventId,
+      mandirId,
+    })
+    if (!parentEvent) throw notFound('Event not found.')
+
+    if (!Array.isArray(parentEvent.subEvents)) {
+      parentEvent.subEvents = []
+    }
+
+    const subEventIndex = parentEvent.subEvents.findIndex((item) => item.id === req.params.subEventId)
+    if (subEventIndex < 0) {
+      throw notFound('Sub-event not found.')
+    }
+
+    const [deletedSubEvent] = parentEvent.subEvents.splice(subEventIndex, 1)
+    await saveDb()
+
+    const tenantRegistrations = filterByMandir(db.eventRegistrations, mandirId)
+    return res.json({
+      deletedSubEvent,
+      event: formatEventResponse(parentEvent, tenantRegistrations),
+    })
   } catch (error) {
     return next(error)
   }

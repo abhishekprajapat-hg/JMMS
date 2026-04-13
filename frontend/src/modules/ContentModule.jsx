@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiRequest, toAbsoluteUrl } from '../services/api'
 import { formatDate } from '../utils/validation'
+import {
+  CollapsiblePanelHead,
+  PanelCollapseActions,
+  usePanelSections,
+} from '../components/PanelCollapseControls'
 
 const CONTENT_TYPES = ['ebook', 'video']
 const MAX_CLIENT_UPLOAD_BYTES = 30 * 1024 * 1024
@@ -8,6 +13,11 @@ const MAX_CLIENT_COVER_BYTES = 8 * 1024 * 1024
 const EBOOK_FILE_ACCEPT = 'application/pdf,.pdf'
 const VIDEO_FILE_ACCEPT = 'video/*,.mp4,.webm,.ogg,.mov,.m4v'
 const COVER_FILE_ACCEPT = 'image/*,.jpg,.jpeg,.png,.webp,.gif'
+const CONTENT_SECTION_KEYS = {
+  websiteContent: 'websiteContent',
+  contentLibrary: 'contentLibrary',
+}
+const CONTENT_ALL_SECTION_KEYS = [CONTENT_SECTION_KEYS.websiteContent, CONTENT_SECTION_KEYS.contentLibrary]
 
 function getInitialForm() {
   return {
@@ -58,6 +68,13 @@ export function ContentModule({ authToken, onNotice }) {
   const [uploadingCover, setUploadingCover] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [form, setForm] = useState(getInitialForm)
+  const {
+    collapsedSections,
+    areAllVisibleSectionsCollapsed,
+    areAllVisibleSectionsExpanded,
+    toggleSection,
+    setAllVisibleSections,
+  } = usePanelSections(CONTENT_ALL_SECTION_KEYS)
 
   const itemLookup = useMemo(
     () => Object.fromEntries(items.map((item) => [item.id, item])),
@@ -278,217 +295,232 @@ export function ContentModule({ authToken, onNotice }) {
 
   return (
     <section className="panel-grid two-column">
+      <PanelCollapseActions
+        areAllVisibleSectionsCollapsed={areAllVisibleSectionsCollapsed}
+        areAllVisibleSectionsExpanded={areAllVisibleSectionsExpanded}
+        setAllVisibleSections={setAllVisibleSections}
+      />
       <article className="panel">
-        <div className="panel-head">
-          <h2>Main Website Content</h2>
-          <p>Manage ebooks and videos shown on the public user website.</p>
-        </div>
-
-        <form className="stack-form" onSubmit={handleSubmit}>
-          <h3>{editingId ? `Edit ${editingId}` : 'Create Content Item'}</h3>
-          <label>
-            Type
-            <select
-              value={form.type}
-              onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}
-            >
-              {CONTENT_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {type === 'ebook' ? 'Ebook' : 'Video'}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Title
-            <input
-              value={form.title}
-              onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-            />
-          </label>
-
-          <label>
-            URL (PDF/Drive/YouTube)
-            <input
-              value={form.url}
-              onChange={(event) => setForm((current) => ({ ...current, url: event.target.value }))}
-            />
-          </label>
-
-          <label>
-            Upload {form.type === 'ebook' ? 'Ebook File' : 'Video File'} (optional)
-            <input
-              type="file"
-              accept={form.type === 'ebook' ? EBOOK_FILE_ACCEPT : VIDEO_FILE_ACCEPT}
-              onChange={async (event) => {
-                const file = event.target.files?.[0] || null
-                event.target.value = ''
-                await handleUploadFile(file)
-              }}
-              disabled={loading || saving || uploadingAsset || uploadingCover}
-            />
-          </label>
-          <p className="hint">
-            {uploadingAsset
-              ? 'Uploading file and generating URL...'
-              : 'Select a file to upload directly. URL field will auto-fill after upload.'}
-          </p>
-
-          <label>
-            Description
-            <textarea
-              value={form.description}
-              onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-            />
-          </label>
-
-          <label>
-            Thumbnail URL (optional)
-            <input
-              value={form.thumbnailUrl}
-              onChange={(event) => setForm((current) => ({ ...current, thumbnailUrl: event.target.value }))}
-            />
-          </label>
-
-          <label>
-            Upload Cover Photo (optional)
-            <input
-              type="file"
-              accept={COVER_FILE_ACCEPT}
-              onChange={async (event) => {
-                const file = event.target.files?.[0] || null
-                event.target.value = ''
-                await handleUploadCover(file)
-              }}
-              disabled={loading || saving || uploadingAsset || uploadingCover}
-            />
-          </label>
-          <p className="hint">
-            {uploadingCover
-              ? 'Uploading cover photo...'
-              : 'Cover photo will be shown on the user website ebook cards.'}
-          </p>
-
-          {form.thumbnailUrl && (
-            <div className="cover-preview-box">
-              <img className="cover-preview-image" src={toAbsoluteUrl(form.thumbnailUrl)} alt="Cover preview" />
-            </div>
-          )}
-
-          <label>
-            Tags (comma separated)
-            <input
-              value={form.tags}
-              onChange={(event) => setForm((current) => ({ ...current, tags: event.target.value }))}
-            />
-          </label>
-
-          <label>
-            Sort Order
-            <input
-              type="number"
-              min="0"
-              value={form.sortOrder}
-              onChange={(event) => setForm((current) => ({ ...current, sortOrder: event.target.value }))}
-            />
-          </label>
-
-          <label className="inline-checkbox">
-            <input
-              type="checkbox"
-              checked={form.isPublished}
-              onChange={(event) => setForm((current) => ({ ...current, isPublished: event.target.checked }))}
-            />
-            Publish on website
-          </label>
-
-          <div className="action-row">
-            <button type="submit" disabled={saving || loading || uploadingAsset || uploadingCover}>
-              {editingId ? 'Update Content' : 'Create Content'}
-            </button>
-            {editingId && (
-              <button
-                type="button"
-                className="secondary-btn"
-                onClick={resetForm}
-                disabled={saving || loading || uploadingAsset || uploadingCover}
+        <CollapsiblePanelHead
+          sectionKey={CONTENT_SECTION_KEYS.websiteContent}
+          collapsedSections={collapsedSections}
+          toggleSection={toggleSection}
+          controlsId="content-main-website-panel"
+          title="Main Website Content"
+          subtitle="Manage ebooks and videos shown on the public user website."
+        />
+        <div id="content-main-website-panel" hidden={collapsedSections[CONTENT_SECTION_KEYS.websiteContent]}>
+          <form className="stack-form" onSubmit={handleSubmit}>
+            <h3>{editingId ? `Edit ${editingId}` : 'Create Content Item'}</h3>
+            <label>
+              Type
+              <select
+                value={form.type}
+                onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}
               >
-                Cancel Edit
-              </button>
+                {CONTENT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type === 'ebook' ? 'Ebook' : 'Video'}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              Title
+              <input
+                value={form.title}
+                onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+              />
+            </label>
+
+            <label>
+              URL (PDF/Drive/YouTube)
+              <input
+                value={form.url}
+                onChange={(event) => setForm((current) => ({ ...current, url: event.target.value }))}
+              />
+            </label>
+
+            <label>
+              Upload {form.type === 'ebook' ? 'Ebook File' : 'Video File'} (optional)
+              <input
+                type="file"
+                accept={form.type === 'ebook' ? EBOOK_FILE_ACCEPT : VIDEO_FILE_ACCEPT}
+                onChange={async (event) => {
+                  const file = event.target.files?.[0] || null
+                  event.target.value = ''
+                  await handleUploadFile(file)
+                }}
+                disabled={loading || saving || uploadingAsset || uploadingCover}
+              />
+            </label>
+            <p className="hint">
+              {uploadingAsset
+                ? 'Uploading file and generating URL...'
+                : 'Select a file to upload directly. URL field will auto-fill after upload.'}
+            </p>
+
+            <label>
+              Description
+              <textarea
+                value={form.description}
+                onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+              />
+            </label>
+
+            <label>
+              Thumbnail URL (optional)
+              <input
+                value={form.thumbnailUrl}
+                onChange={(event) => setForm((current) => ({ ...current, thumbnailUrl: event.target.value }))}
+              />
+            </label>
+
+            <label>
+              Upload Cover Photo (optional)
+              <input
+                type="file"
+                accept={COVER_FILE_ACCEPT}
+                onChange={async (event) => {
+                  const file = event.target.files?.[0] || null
+                  event.target.value = ''
+                  await handleUploadCover(file)
+                }}
+                disabled={loading || saving || uploadingAsset || uploadingCover}
+              />
+            </label>
+            <p className="hint">
+              {uploadingCover
+                ? 'Uploading cover photo...'
+                : 'Cover photo will be shown on the user website ebook cards.'}
+            </p>
+
+            {form.thumbnailUrl && (
+              <div className="cover-preview-box">
+                <img className="cover-preview-image" src={toAbsoluteUrl(form.thumbnailUrl)} alt="Cover preview" />
+              </div>
             )}
-          </div>
-        </form>
+
+            <label>
+              Tags (comma separated)
+              <input
+                value={form.tags}
+                onChange={(event) => setForm((current) => ({ ...current, tags: event.target.value }))}
+              />
+            </label>
+
+            <label>
+              Sort Order
+              <input
+                type="number"
+                min="0"
+                value={form.sortOrder}
+                onChange={(event) => setForm((current) => ({ ...current, sortOrder: event.target.value }))}
+              />
+            </label>
+
+            <label className="inline-checkbox">
+              <input
+                type="checkbox"
+                checked={form.isPublished}
+                onChange={(event) => setForm((current) => ({ ...current, isPublished: event.target.checked }))}
+              />
+              Publish on website
+            </label>
+
+            <div className="action-row">
+              <button type="submit" disabled={saving || loading || uploadingAsset || uploadingCover}>
+                {editingId ? 'Update Content' : 'Create Content'}
+              </button>
+              {editingId && (
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  onClick={resetForm}
+                  disabled={saving || loading || uploadingAsset || uploadingCover}
+                >
+                  Cancel Edit
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
       </article>
 
       <article className="panel">
-        <div className="panel-head">
-          <h2>Content Library</h2>
-          <p>These items sync directly to your main-domain user website.</p>
-        </div>
-
-        <div className="table-wrap compact">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Type</th>
-                <th>Title</th>
-                <th>Status</th>
-                <th>Order</th>
-                <th>Updated</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.length === 0 && (
+        <CollapsiblePanelHead
+          sectionKey={CONTENT_SECTION_KEYS.contentLibrary}
+          collapsedSections={collapsedSections}
+          toggleSection={toggleSection}
+          controlsId="content-library-panel"
+          title="Content Library"
+          subtitle="These items sync directly to your main-domain user website."
+        />
+        <div id="content-library-panel" hidden={collapsedSections[CONTENT_SECTION_KEYS.contentLibrary]}>
+          <div className="table-wrap compact">
+            <table>
+              <thead>
                 <tr>
-                  <td colSpan="7">{loading ? 'Loading...' : 'No content items created yet.'}</td>
+                  <th>ID</th>
+                  <th>Type</th>
+                  <th>Title</th>
+                  <th>Status</th>
+                  <th>Order</th>
+                  <th>Updated</th>
+                  <th>Actions</th>
                 </tr>
-              )}
-              {items.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.id}</td>
-                  <td>{item.type}</td>
-                  <td>{item.title}</td>
-                  <td>{item.isPublished ? 'Published' : 'Draft'}</td>
-                  <td>{item.sortOrder}</td>
-                  <td>{formatDate(item.updatedAt)}</td>
-                  <td className="table-actions-cell">
-                    <div className="action-row table-action-row">
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        onClick={() => {
-                          setEditingId(item.id)
-                          applyItemToForm(item)
-                        }}
-                        disabled={saving}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        onClick={() => togglePublish(item.id)}
-                        disabled={saving}
-                      >
-                        {item.isPublished ? 'Unpublish' : 'Publish'}
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        onClick={() => handleDelete(item.id)}
-                        disabled={saving}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {items.length === 0 && (
+                  <tr>
+                    <td colSpan="7">{loading ? 'Loading...' : 'No content items created yet.'}</td>
+                  </tr>
+                )}
+                {items.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.id}</td>
+                    <td>{item.type}</td>
+                    <td>{item.title}</td>
+                    <td>{item.isPublished ? 'Published' : 'Draft'}</td>
+                    <td>{item.sortOrder}</td>
+                    <td>{formatDate(item.updatedAt)}</td>
+                    <td className="table-actions-cell">
+                      <div className="action-row table-action-row">
+                        <button
+                          type="button"
+                          className="secondary-btn"
+                          onClick={() => {
+                            setEditingId(item.id)
+                            applyItemToForm(item)
+                          }}
+                          disabled={saving}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-btn"
+                          onClick={() => togglePublish(item.id)}
+                          disabled={saving}
+                        >
+                          {item.isPublished ? 'Unpublish' : 'Publish'}
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-btn"
+                          onClick={() => handleDelete(item.id)}
+                          disabled={saving}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </article>
     </section>

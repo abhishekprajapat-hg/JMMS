@@ -8,6 +8,7 @@ export function PaymentsVerificationPage({
   permissions,
   onReconcile,
   onResendReceipt,
+  onOpenIntent,
 }) {
   const eventPendingCount = eventRegistrationIntents.filter((intent) =>
     ['Pending', 'Proof Submitted'].includes(intent.status),
@@ -51,7 +52,7 @@ export function PaymentsVerificationPage({
       <div className="payments-table-section">
         <div className="stack-form">
           <h3>Event Registration Payments</h3>
-          <p className="hint">Only payments linked to event registrations are listed here.</p>
+          <p className="hint">Only payments linked to event registrations are listed here. Row click opens full details.</p>
         </div>
         <PaymentIntentTable
           items={eventRegistrationIntents}
@@ -61,13 +62,14 @@ export function PaymentsVerificationPage({
           permissions={permissions}
           onReconcile={onReconcile}
           onResendReceipt={onResendReceipt}
+          onOpenIntent={onOpenIntent}
         />
       </div>
 
       <div className="payments-table-section">
         <div className="stack-form">
           <h3>Donation & Other Payments</h3>
-          <p className="hint">Donation intents and non-event linked payments are listed here.</p>
+          <p className="hint">Donation intents and non-event linked payments are listed here. Row click opens full details.</p>
         </div>
         <PaymentIntentTable
           items={donationIntents}
@@ -77,6 +79,7 @@ export function PaymentsVerificationPage({
           permissions={permissions}
           onReconcile={onReconcile}
           onResendReceipt={onResendReceipt}
+          onOpenIntent={onOpenIntent}
         />
       </div>
     </article>

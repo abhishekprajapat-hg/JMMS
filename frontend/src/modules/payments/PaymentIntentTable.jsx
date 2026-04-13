@@ -17,6 +17,7 @@ export function PaymentIntentTable({
   permissions,
   onReconcile,
   onResendReceipt,
+  onOpenIntent = () => {},
 }) {
   return (
     <div className="table-wrap payments-intent-table">
@@ -40,7 +41,19 @@ export function PaymentIntentTable({
             </tr>
           )}
           {items.map((intent) => (
-            <tr key={intent.id}>
+            <tr
+              key={intent.id}
+              className="payments-intent-row"
+              role="button"
+              tabIndex={0}
+              aria-label={`Open payment intent ${intent.id}`}
+              onClick={() => onOpenIntent(intent.id)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return
+                event.preventDefault()
+                onOpenIntent(intent.id)
+              }}
+            >
               <td className="payments-text-mono">{intent.id}</td>
               <td>{familyLookup[intent.familyId] || intent.familyId}</td>
               <td className="payments-text-strong">{formatCurrency(intent.amount)}</td>
@@ -60,7 +73,10 @@ export function PaymentIntentTable({
                     <button
                       type="button"
                       className="secondary-btn"
-                      onClick={() => onReconcile(intent.id, 'success')}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onReconcile(intent.id, 'success')
+                      }}
                       disabled={loading}
                     >
                       Verify + Settle
@@ -68,7 +84,10 @@ export function PaymentIntentTable({
                     <button
                       type="button"
                       className="secondary-btn"
-                      onClick={() => onReconcile(intent.id, 'failed')}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onReconcile(intent.id, 'failed')
+                      }}
                       disabled={loading}
                     >
                       Reject
@@ -78,7 +97,10 @@ export function PaymentIntentTable({
                   <button
                     type="button"
                     className="secondary-btn"
-                    onClick={() => onResendReceipt(intent.id)}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onResendReceipt(intent.id)
+                    }}
                     disabled={loading}
                   >
                     Resend Receipt

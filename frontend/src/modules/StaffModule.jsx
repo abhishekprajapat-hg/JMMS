@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiRequest } from '../services/api'
 import { formatDate } from '../utils/validation'
+import {
+  CollapsiblePanelHead,
+  PanelCollapseActions,
+  usePanelSections,
+} from '../components/PanelCollapseControls'
 
 function getInitialForm(defaultRole) {
   return {
@@ -11,12 +16,26 @@ function getInitialForm(defaultRole) {
   }
 }
 
+const STAFF_SECTION_KEYS = {
+  createUser: 'createUser',
+  existingUsers: 'existingUsers',
+}
+
+const STAFF_ALL_SECTION_KEYS = [STAFF_SECTION_KEYS.createUser, STAFF_SECTION_KEYS.existingUsers]
+
 export function StaffModule({ authToken, currentUser, roleConfig, onNotice }) {
   const [users, setUsers] = useState([])
   const [creatableRoles, setCreatableRoles] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(getInitialForm('executive'))
+  const {
+    collapsedSections,
+    areAllVisibleSectionsCollapsed,
+    areAllVisibleSectionsExpanded,
+    toggleSection,
+    setAllVisibleSections,
+  } = usePanelSections(STAFF_ALL_SECTION_KEYS)
 
   const roleOptions = useMemo(
     () => creatableRoles.filter((role) => roleConfig[role]),
@@ -83,115 +102,130 @@ export function StaffModule({ authToken, currentUser, roleConfig, onNotice }) {
 
   return (
     <section className="panel-grid two-column">
+      <PanelCollapseActions
+        areAllVisibleSectionsCollapsed={areAllVisibleSectionsCollapsed}
+        areAllVisibleSectionsExpanded={areAllVisibleSectionsExpanded}
+        setAllVisibleSections={setAllVisibleSections}
+      />
       <article className="panel">
-        <div className="panel-head">
-          <h2>Staff User Access</h2>
-          <p>Create privileged users for accounting and operations.</p>
+        <CollapsiblePanelHead
+          sectionKey={STAFF_SECTION_KEYS.createUser}
+          collapsedSections={collapsedSections}
+          toggleSection={toggleSection}
+          controlsId="staff-create-user-panel"
+          title="Staff User Access"
+          subtitle="Create privileged users for accounting and operations."
+        />
+        <div id="staff-create-user-panel" hidden={collapsedSections[STAFF_SECTION_KEYS.createUser]}>
+          <form className="stack-form" onSubmit={handleCreateUser}>
+            <h3>Create User</h3>
+            <label>
+              Full Name
+              <input
+                value={form.fullName}
+                onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))}
+                disabled={saving || loading}
+              />
+            </label>
+
+            <label>
+              Username
+              <input
+                value={form.username}
+                onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
+                placeholder="e.g. accounts.punyanidhi"
+                disabled={saving || loading}
+              />
+            </label>
+
+            <label>
+              Password
+              <input
+                type="password"
+                value={form.password}
+                onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
+                placeholder="Minimum 8 characters"
+                disabled={saving || loading}
+              />
+            </label>
+
+            <label>
+              Role
+              <select
+                value={form.role}
+                onChange={(event) => setForm((current) => ({ ...current, role: event.target.value }))}
+                disabled={saving || loading}
+              >
+                {roleOptions.map((role) => (
+                  <option key={role} value={role}>
+                    {roleConfig[role]?.label || role}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <p className="hint">
+              Logged in as {currentUser?.username || '-'} ({roleConfig[currentUser?.role]?.label || currentUser?.role}).
+            </p>
+
+            <div className="action-row">
+              <button type="submit" disabled={saving || loading || !roleOptions.length}>
+                {saving ? 'Creating...' : 'Create User'}
+              </button>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={loadUsers}
+                disabled={saving || loading}
+              >
+                Refresh
+              </button>
+            </div>
+          </form>
         </div>
-
-        <form className="stack-form" onSubmit={handleCreateUser}>
-          <h3>Create User</h3>
-          <label>
-            Full Name
-            <input
-              value={form.fullName}
-              onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))}
-              disabled={saving || loading}
-            />
-          </label>
-
-          <label>
-            Username
-            <input
-              value={form.username}
-              onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
-              placeholder="e.g. accounts.punyanidhi"
-              disabled={saving || loading}
-            />
-          </label>
-
-          <label>
-            Password
-            <input
-              type="password"
-              value={form.password}
-              onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
-              placeholder="Minimum 8 characters"
-              disabled={saving || loading}
-            />
-          </label>
-
-          <label>
-            Role
-            <select
-              value={form.role}
-              onChange={(event) => setForm((current) => ({ ...current, role: event.target.value }))}
-              disabled={saving || loading}
-            >
-              {roleOptions.map((role) => (
-                <option key={role} value={role}>
-                  {roleConfig[role]?.label || role}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <p className="hint">
-            Logged in as {currentUser?.username || '-'} ({roleConfig[currentUser?.role]?.label || currentUser?.role}).
-          </p>
-
-          <div className="action-row">
-            <button type="submit" disabled={saving || loading || !roleOptions.length}>
-              {saving ? 'Creating...' : 'Create User'}
-            </button>
-            <button
-              type="button"
-              className="secondary-btn"
-              onClick={loadUsers}
-              disabled={saving || loading}
-            >
-              Refresh
-            </button>
-          </div>
-        </form>
       </article>
 
       <article className="panel">
-        <div className="panel-head">
-          <h2>Existing Staff Users</h2>
-          <p>Only users visible to your role are listed.</p>
-        </div>
-
-        <div className="table-wrap compact">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Full Name</th>
-                <th>Username</th>
-                <th>Role</th>
-                <th>Mandir</th>
-                <th>Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.length === 0 && (
+        <CollapsiblePanelHead
+          sectionKey={STAFF_SECTION_KEYS.existingUsers}
+          collapsedSections={collapsedSections}
+          toggleSection={toggleSection}
+          controlsId="staff-existing-users-panel"
+          title="Existing Staff Users"
+          subtitle="Only users visible to your role are listed."
+        />
+        <div id="staff-existing-users-panel" hidden={collapsedSections[STAFF_SECTION_KEYS.existingUsers]}>
+          <div className="table-wrap compact">
+            <table>
+              <thead>
                 <tr>
-                  <td colSpan="6">{loading ? 'Loading users...' : 'No users available.'}</td>
+                  <th>ID</th>
+                  <th>Full Name</th>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th>Mandir</th>
+                  <th>Created</th>
                 </tr>
-              )}
-              {users.map((user) => (
-                <tr key={user.id}>
-                  <td>{user.id}</td>
-                  <td>{user.fullName || '-'}</td>
-                  <td>{user.username}</td>
-                  <td>{roleConfig[user.role]?.label || user.role}</td>
-                  <td>{user.mandirId || 'Global'}</td>
-                  <td>{formatDate(user.createdAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {users.length === 0 && (
+                  <tr>
+                    <td colSpan="6">{loading ? 'Loading users...' : 'No users available.'}</td>
+                  </tr>
+                )}
+                {users.map((user) => (
+                  <tr key={user.id}>
+                    <td>{user.id}</td>
+                    <td>{user.fullName || '-'}</td>
+                    <td>{user.username}</td>
+                    <td>{roleConfig[user.role]?.label || user.role}</td>
+                    <td>{user.mandirId || 'Global'}</td>
+                    <td>{formatDate(user.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </article>
     </section>

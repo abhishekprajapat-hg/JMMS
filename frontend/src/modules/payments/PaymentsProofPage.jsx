@@ -8,6 +8,7 @@ export function PaymentsProofPage({
   pendingIntents,
   pendingEventIntents,
   pendingDonationIntents,
+  onOpenIntent = () => {},
 }) {
   const queuePreview = pendingIntents.slice(0, 5)
 
@@ -84,12 +85,25 @@ export function PaymentsProofPage({
 
         <section className="payments-surface-card payments-proof-queue">
           <h3>Quick Queue Preview</h3>
+          <p className="hint">Click any item to open full payment intent details.</p>
           {queuePreview.length === 0 ? (
             <p className="hint">No pending proofs right now.</p>
           ) : (
             <ul className="payments-proof-list">
               {queuePreview.map((intent) => (
-                <li key={intent.id}>
+                <li
+                  key={intent.id}
+                  role="button"
+                  tabIndex={0}
+                  className="payments-proof-item"
+                  aria-label={`Open payment intent ${intent.id}`}
+                  onClick={() => onOpenIntent(intent.id)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return
+                    event.preventDefault()
+                    onOpenIntent(intent.id)
+                  }}
+                >
                   <span>{intent.id}</span>
                   <span>{formatCurrency(intent.amount)}</span>
                   <span>{intent.status}</span>
