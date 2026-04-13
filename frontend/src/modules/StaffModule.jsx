@@ -105,7 +105,7 @@ export function StaffModule({ authToken, currentUser, roleConfig, onNotice }) {
             <input
               value={form.username}
               onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
-              placeholder="e.g. accounts.jmms"
+              placeholder="e.g. accounts.punyanidhi"
               disabled={saving || loading}
             />
           </label>

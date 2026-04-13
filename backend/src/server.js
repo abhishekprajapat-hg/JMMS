@@ -62,7 +62,7 @@ async function bootstrap() {
 
   const server = app.listen(env.port, () => {
     // eslint-disable-next-line no-console
-    console.log(`JMMS backend running on http://localhost:${env.port}`)
+    console.log(`Punyanidhi backend running on http://localhost:${env.port}`)
     // eslint-disable-next-line no-console
     console.log(`Active data store: ${getStorageMode()}`)
   })

@@ -183,10 +183,10 @@ export const MODULES = [
 ]
 
 export const MANDIR_PROFILE = {
-  name: 'Shri Jain Shwetambar Mandir',
+  name: 'Shri Digambar Jain Sarvoday Dharmik and Parmarthik Trust',
   address: 'Civil Lines, Jaipur, Rajasthan',
   pan: 'AABTS8023F',
   reg80G: 'AAATS1234AF20251',
   trustNumber: 'RJT-TRUST-2088',
-  letterhead: 'Shri Jain Shwetambar Mandir Trust',
+  letterhead: 'Shri Digambar Jain Sarvoday Dharmik and Parmarthik Trust',
 }

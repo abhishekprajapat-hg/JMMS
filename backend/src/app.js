@@ -78,7 +78,7 @@ app.use('/api', (_req, res, next) => {
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
-    service: 'jmms-backend',
+    service: 'punyanidhi-backend',
     timestamp: new Date().toISOString(),
   })
 })

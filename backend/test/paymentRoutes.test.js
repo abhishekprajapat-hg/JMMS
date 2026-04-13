@@ -11,7 +11,7 @@ function createDb({ paymentIntentStatus = 'Pending', transactionStatus = 'Pledge
     mandirs: [
       {
         id: 'MANDIR-001',
-        name: 'Shri Jain Shwetambar Mandir',
+        name: 'Shri Digambar Jain Sarvoday Dharmik and Parmarthik Trust',
         address: 'Jaipur',
         pan: 'PAN001',
         reg80G: '80G001',
@@ -21,7 +21,7 @@ function createDb({ paymentIntentStatus = 'Pending', transactionStatus = 'Pledge
       },
     ],
     mandirProfile: {
-      name: 'Shri Jain Shwetambar Mandir',
+      name: 'Shri Digambar Jain Sarvoday Dharmik and Parmarthik Trust',
       address: 'Jaipur',
       pan: 'PAN001',
       reg80G: '80G001',
@@ -84,6 +84,32 @@ function createDb({ paymentIntentStatus = 'Pending', transactionStatus = 'Pledge
         payerUtr: 'UTR12345678',
         payerName: 'Amit Jain',
         proofSubmittedAt: '2026-03-22T09:30:00.000Z',
+        mandirId: 'MANDIR-001',
+      },
+    ],
+    events: [
+      {
+        id: 'EVT-001',
+        name: 'Mahotsav Sabha',
+        date: '2026-03-25',
+        hall: 'Main Sabha Hall',
+        capacity: 200,
+        feePerFamily: 1100,
+        mandirId: 'MANDIR-001',
+      },
+    ],
+    eventRegistrations: [
+      {
+        id: 'REG-001',
+        eventId: 'EVT-001',
+        familyId: 'FAM-001',
+        seats: 1,
+        notes: '',
+        registeredAt: '2026-03-22T09:00:00.000Z',
+        checkedInAt: '',
+        paymentStatus: 'Pending',
+        approvalStatus: 'Pending Payment',
+        transactionId: 'TRX-001',
         mandirId: 'MANDIR-001',
       },
     ],
@@ -250,6 +276,8 @@ test('reconcile sends WhatsApp receipt for newly paid linked transactions', asyn
     assert.equal(response.payload.settledTransaction.dueDate, '')
     assert.ok(response.payload.settledTransaction.paidAt)
     assert.equal(response.payload.whatsappLog.status, 'Sent')
+    assert.equal(db.eventRegistrations[0].paymentStatus, 'Paid')
+    assert.equal(db.eventRegistrations[0].approvalStatus, 'Approved')
     assert.equal(getReceiptCallCount(), 1)
     assert.equal(getWhatsappCalls().length, 1)
     assert.equal(getSaveCount(), 1)
@@ -277,6 +305,8 @@ test('reconcile sends WhatsApp receipt even when linked transaction is already p
     assert.equal(response.payload.settledTransaction.status, 'Paid')
     assert.match(response.payload.settledTransaction.receiptPath, /^\/receipts\/TRX-001-1\.pdf$/)
     assert.equal(response.payload.whatsappLog.status, 'Sent')
+    assert.equal(db.eventRegistrations[0].paymentStatus, 'Paid')
+    assert.equal(db.eventRegistrations[0].approvalStatus, 'Approved')
     assert.equal(getReceiptCallCount(), 1)
     assert.equal(getWhatsappCalls().length, 1)
     assert.equal(getWhatsappCalls()[0].transaction.id, 'TRX-001')
@@ -303,6 +333,29 @@ test('resend-receipt sends WhatsApp receipt again for successful payment intents
     assert.equal(getWhatsappCalls().length, 1)
     assert.equal(getWhatsappCalls()[0].trigger, 'manual_receipt_retry')
     assert.equal(getSaveCount(), 1)
+  } finally {
+    restore()
+  }
+})
+
+test('reconcile marks linked event registration as rejected when outcome is failed', async () => {
+  const db = createDb({ transactionStatus: 'Pledged' })
+  const { paymentRoutes, restore, getWhatsappCalls, getReceiptCallCount } = loadRouteWithMocks(db)
+
+  try {
+    const handler = getReconcileHandler(paymentRoutes)
+    const response = await invokeRoute(handler, {
+      body: {
+        outcome: 'failed',
+        failureReason: 'Bank reference mismatch',
+      },
+    })
+
+    assert.equal(response.payload.paymentIntent.status, 'Failed')
+    assert.equal(db.eventRegistrations[0].paymentStatus, 'Payment Failed')
+    assert.equal(db.eventRegistrations[0].approvalStatus, 'Rejected')
+    assert.equal(getWhatsappCalls().length, 0)
+    assert.equal(getReceiptCallCount(), 0)
   } finally {
     restore()
   }

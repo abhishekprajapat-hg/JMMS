@@ -1,6 +1,6 @@
-# JMMS Mobile
+# Punyanidhi Mobile
 
-Expo-based mobile app that mirrors the user website experience and connects to the same JMMS backend APIs.
+Expo-based mobile app that mirrors the user website experience and connects to the same Punyanidhi backend APIs.
 
 ## Features
 
@@ -42,7 +42,7 @@ The backend should be running from the repo's `backend` folder on port `4000`.
 
 ## Android preview build
 
-This project includes [eas.json](/c:/Users/abhishe/OneDrive/Desktop/JMMS/user-mobile/eas.json) with a `preview` profile that produces an APK build.
+This project includes [eas.json](./eas.json) with a `preview` profile that produces an APK build.
 
 Example:
 
@@ -55,7 +55,7 @@ If you are building from CI, set `EXPO_TOKEN` instead of running interactive log
 
 Assumed package IDs:
 
-- Android: `tech.nemnidhi.jmmsmobile`
-- iOS: `tech.nemnidhi.jmmsmobile`
+- Android: `tech.nemnidhi.punyanidhi`
+- iOS: `tech.nemnidhi.punyanidhi`
 
-Change those in [app.json](/c:/Users/abhishe/OneDrive/Desktop/JMMS/user-mobile/app.json) if you want a different final app identifier before publishing.
+Change those in [app.json](./app.json) if you want a different final app identifier before publishing.

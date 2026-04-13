@@ -1,4 +1,4 @@
-# JMMS User Frontend
+# Punyanidhi User Frontend
 
 Public user-facing website for devotees (main domain), separate from admin.
 Supports mandir selection, sign-up/sign-in, and tenant-scoped dashboard views.

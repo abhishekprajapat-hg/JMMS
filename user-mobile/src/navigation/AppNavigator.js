@@ -23,7 +23,7 @@ function LoadingScreen() {
   return (
     <View style={styles.loading}>
       <ActivityIndicator size="large" color="#c2410c" />
-      <Text style={styles.loadingText}>Preparing JMMS Mobile...</Text>
+      <Text style={styles.loadingText}>Preparing Punyanidhi...</Text>
     </View>
   )
 }

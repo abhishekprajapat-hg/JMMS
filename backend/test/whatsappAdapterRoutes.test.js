@@ -291,7 +291,7 @@ test('whatsapp adapter includes body vars and receipt button var for a custom te
         to: '+917000445463',
         meta: {
           useTemplate: true,
-          templateName: 'jmms_receipt',
+          templateName: 'punyanidhi_receipt',
           templateLanguage: 'en_US',
           templateBodyParams: ['Abhishek Prajapat', '998.00'],
           templateButtonUrlParams: ['TRX-MN3379PE-VY2Y.pdf'],
@@ -304,7 +304,7 @@ test('whatsapp adapter includes body vars and receipt button var for a custom te
     assert.equal(response.body.mode, 'template_only')
     assert.equal(fetchCalls.length, 1)
     assert.equal(fetchCalls[0].type, 'template')
-    assert.equal(fetchCalls[0].template.name, 'jmms_receipt')
+    assert.equal(fetchCalls[0].template.name, 'punyanidhi_receipt')
     assert.deepEqual(fetchCalls[0].template.components, [
       {
         type: 'body',

@@ -29,7 +29,7 @@ export function ScreenShell({
               ]}
             >
               <Text style={[styles.brandText, { color: theme.colors.accentStrong }]}>
-                JMMS Mobile
+                Punyanidhi
               </Text>
             </View>
 

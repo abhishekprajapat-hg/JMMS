@@ -39,9 +39,9 @@ import { WhatsAppPage } from './WhatsAppPage'
 import { InventoryPage } from './InventoryPage'
 import { SchedulerPage } from './SchedulerPage'
 
-const TOKEN_STORAGE_KEY = 'jmms_auth_token'
-const REFRESH_TOKEN_STORAGE_KEY = 'jmms_refresh_token'
-const LANGUAGE_STORAGE_KEY = 'jmms_language'
+const TOKEN_STORAGE_KEY = 'punyanidhi_auth_token'
+const REFRESH_TOKEN_STORAGE_KEY = 'punyanidhi_refresh_token'
+const LANGUAGE_STORAGE_KEY = 'punyanidhi_language'
 const DEFAULT_MUNIM_NAME = 'Shri Rakesh Jain'
 const NOTICE_AUTO_DISMISS_MS = 4500
 const MODULE_ROUTE_MAP = {
@@ -108,6 +108,25 @@ function getInitialSummaryReport() {
     totals: null,
     byFundCategory: [],
   }
+}
+
+function withNormalizedBookingRange(booking = {}) {
+  const startDate = String(booking.startDate || booking.date || '')
+  const endDate = String(booking.endDate || booking.date || startDate || '')
+  return {
+    ...booking,
+    date: startDate,
+    startDate,
+    endDate,
+  }
+}
+
+function getBookingStartDate(booking = {}) {
+  return String(booking.startDate || booking.date || '')
+}
+
+function getBookingEndDate(booking = {}) {
+  return String(booking.endDate || booking.date || booking.startDate || '')
 }
 
 export function WorkspacePage() {
@@ -221,7 +240,8 @@ export function WorkspacePage() {
   })
 
   const [bookingForm, setBookingForm] = useState({
-    date: toISODate(),
+    startDate: toISODate(),
+    endDate: toISODate(),
     slot: POOJA_SLOTS[0],
     familyId: '',
     notes: '',
@@ -326,7 +346,7 @@ export function WorkspacePage() {
 
     const openCheckouts = assetCheckouts.filter((checkout) => checkout.status === 'Checked Out')
     const overdueAssets = openCheckouts.filter((checkout) => isDatePastDue(checkout.expectedReturnDate, today))
-    const upcomingSlots = poojaBookings.filter((booking) => booking.date >= today).length
+    const upcomingSlots = poojaBookings.filter((booking) => getBookingEndDate(booking) >= today).length
 
     return {
       todayPaidTotal,
@@ -577,7 +597,7 @@ export function WorkspacePage() {
       setBackendStatus({
         state: 'online',
         label: 'Backend connected',
-        detail: `${health.payload?.service || 'jmms-backend'} (${health.payload?.status || 'ok'})`,
+        detail: `${health.payload?.service || 'punyanidhi-backend'} (${health.payload?.status || 'ok'})`,
         checkedAt: new Date().toISOString(),
       })
     } catch (error) {
@@ -696,7 +716,7 @@ export function WorkspacePage() {
       setTransactions(mapTransactions(transactionRes.transactions || []))
       setAssets(assetRes.assets || [])
       setAssetCheckouts(checkoutRes.checkouts || [])
-      setPoojaBookings(bookingRes.bookings || [])
+      setPoojaBookings((bookingRes.bookings || []).map((booking) => withNormalizedBookingRange(booking)))
       setCancellationLogs(cancellationRes.cancellationLogs || [])
       setApprovalQueue(approvalsRes.approvals || [])
       setWhatsAppConfig((current) => ({
@@ -1100,7 +1120,8 @@ export function WorkspacePage() {
   function resetBookingForm() {
     setBookingForm((current) => ({
       ...current,
-      date: toISODate(),
+      startDate: toISODate(),
+      endDate: toISODate(),
       notes: '',
     }))
   }
@@ -1471,13 +1492,19 @@ export function WorkspacePage() {
   async function handleBookingSubmit(event) {
     event.preventDefault()
 
+    if (!bookingForm.startDate || !bookingForm.endDate || bookingForm.endDate < bookingForm.startDate) {
+      showNotice('error', 'Please select a valid start and end date range.')
+      return
+    }
+
     setWorking(true)
     try {
       const response = await apiRequest('/scheduler/bookings', {
         method: 'POST',
         token: authToken,
         body: {
-          date: bookingForm.date,
+          startDate: bookingForm.startDate,
+          endDate: bookingForm.endDate,
           slot: bookingForm.slot,
           familyId: bookingForm.familyId,
           notes: bookingForm.notes,
@@ -1485,7 +1512,7 @@ export function WorkspacePage() {
         },
       })
 
-      setPoojaBookings((current) => [response.booking, ...current])
+      setPoojaBookings((current) => [withNormalizedBookingRange(response.booking), ...current])
       resetBookingForm()
       await refreshDashboard()
       showNotice('success', `Pooja slot booked (${response.booking.id}).`)
@@ -1582,8 +1609,8 @@ export function WorkspacePage() {
   const todaysCollectionAmount = dashboardMetrics.todayPaidTotal ?? localMetrics.todayPaidTotal
   const recentDonations = activePaidTransactions.slice(0, 5)
   const upcomingPooja = poojaBookings
-    .filter((booking) => booking.date >= toISODate())
-    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .filter((booking) => getBookingEndDate(booking) >= toISODate())
+    .sort((a, b) => getBookingStartDate(a).localeCompare(getBookingStartDate(b)))
     .slice(0, 5)
 
   const roleDashboardSubtitle = {
@@ -1984,6 +2011,7 @@ export function WorkspacePage() {
               authToken={authToken}
               families={families}
               eventHalls={eventHalls}
+              transactions={transactions}
               permissions={permissions}
               onNotice={showNotice}
               onRefreshTransactions={refreshTransactions}

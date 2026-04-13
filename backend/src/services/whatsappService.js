@@ -33,7 +33,7 @@ function joinBaseAndPath(base, maybePath) {
 }
 
 function getRuntimeEnvPath() {
-  const overridePath = String(process.env.JMMS_RUNTIME_ENV_PATH || '').trim()
+  const overridePath = String(process.env.PUNYANIDHI_RUNTIME_ENV_PATH || '').trim()
   return overridePath ? path.resolve(overridePath) : DEFAULT_RUNTIME_ENV_PATH
 }
 
@@ -134,7 +134,7 @@ function buildInstantReceiptMessage(transaction, familyName, runtimeConfig = get
   const receiptLink = resolveReceiptLink(transaction, runtimeConfig)
   const linkLine = receiptLink
     ? `Download your official receipt here: ${receiptLink}.`
-    : 'Your official receipt is ready in JMMS.'
+    : 'Your official receipt is ready in Punyanidhi.'
   return `Jai Jinendra ${safeName}, we have received your ${transaction.type} of ${formatInr(
     transaction.amount,
   )} for ${transaction.fundCategory}. ${linkLine} Punyanumodana!`

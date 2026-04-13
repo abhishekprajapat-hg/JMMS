@@ -10,11 +10,13 @@ const {
 const { badRequest } = require('../utils/http')
 const { ensurePositiveNumber, ensureRequiredString } = require('../utils/validation')
 const { createId } = require('../utils/ids')
+const { normalizeBookingRange, doesBookingRangeOverlap } = require('../utils/bookingRange')
 const {
   getPortalConfig,
   buildPaymentInstructions,
   buildFamilyPortalSummary,
 } = require('../services/portalService')
+const { updateEventRegistrationPaymentStatus } = require('../services/eventRegistrationService')
 const { resolveMandirId, getRecordMandirId, withMandir, scopeDbByMandir } = require('../services/tenantService')
 
 const router = express.Router()
@@ -57,12 +59,16 @@ router.post('/bookings', authorize('accessDevoteePortal'), async (req, res, next
     const mandirId = resolveMandirId(req, db)
     const scopedDb = scopeDbByMandir(db, mandirId)
     const familyId = ensureRequiredString(req.body?.familyId)
-    const date = ensureRequiredString(req.body?.date)
+    const range = normalizeBookingRange({
+      date: req.body?.date,
+      startDate: req.body?.startDate,
+      endDate: req.body?.endDate,
+    })
     const slot = ensureRequiredString(req.body?.slot)
     const notes = ensureRequiredString(req.body?.notes)
 
-    if (!familyId || !date || !slot) {
-      throw badRequest('familyId, date, and slot are required.')
+    if (!familyId || !range || !slot) {
+      throw badRequest('familyId, date (or startDate/endDate), and slot are required.')
     }
     if (!scopedDb.families.some((family) => family.familyId === familyId)) {
       throw badRequest('Family profile not found.')
@@ -72,15 +78,18 @@ router.post('/bookings', authorize('accessDevoteePortal'), async (req, res, next
     }
 
     const conflict = db.poojaBookings.find(
-      (booking) => booking.date === date && booking.slot === slot && getRecordMandirId(booking) === mandirId,
+      (booking) =>
+        booking.slot === slot &&
+        getRecordMandirId(booking) === mandirId &&
+        doesBookingRangeOverlap(range, booking),
     )
     if (conflict) {
-      throw badRequest('This pooja slot is already booked for the selected date.')
+      throw badRequest('This pooja slot is already booked within the selected date range.')
     }
 
     const booking = withMandir({
       id: createId('POO'),
-      date,
+      ...range,
       slot,
       familyId,
       notes: notes || 'Booked from devotee self-service portal',
@@ -203,6 +212,14 @@ router.post('/payments/:paymentId/proof', authorize('accessDevoteePortal'), asyn
     paymentIntent.payerName = ensureRequiredString(req.body?.payerName)
     paymentIntent.proofSubmittedAt = new Date().toISOString()
     paymentIntent.status = 'Proof Submitted'
+    if (paymentIntent.linkedTransactionId) {
+      updateEventRegistrationPaymentStatus(db.eventRegistrations, {
+        transactionId: paymentIntent.linkedTransactionId,
+        mandirId,
+        paymentStatus: 'Proof Submitted',
+        approvalStatus: 'Pending Verification',
+      })
+    }
     await saveDb()
 
     return res.json({ paymentIntent })

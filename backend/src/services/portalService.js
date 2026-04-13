@@ -78,10 +78,110 @@ function buildFamilyPortalSummary(db, familyId) {
   )
 
   const bookings = (db.poojaBookings || []).filter((booking) => booking.familyId === familyId)
-  const eventRegistrations = (db.eventRegistrations || []).filter(
-    (registration) => registration.familyId === familyId,
-  )
+  const allEventRegistrations = db.eventRegistrations || []
+  const eventRegistrations = allEventRegistrations.filter((registration) => registration.familyId === familyId)
   const paymentIntents = (db.paymentIntents || []).filter((intent) => intent.familyId === familyId)
+  const events = db.events || []
+
+  const eventRegistrationsByEventId = allEventRegistrations.reduce((accumulator, registration) => {
+    const eventId = ensureRequiredString(registration.eventId)
+    if (!eventId) return accumulator
+    accumulator[eventId] = (accumulator[eventId] || 0) + (Number(registration.seats) || 0)
+    return accumulator
+  }, {})
+
+  const familyRegistrationLookup = Object.fromEntries(
+    eventRegistrations.map((registration) => [registration.eventId, registration]),
+  )
+
+  const enrichedEvents = [...events]
+    .sort((left, right) => String(left.date || '').localeCompare(String(right.date || '')))
+    .map((event) => ({
+      ...event,
+      seatsBooked: eventRegistrationsByEventId[event.id] || 0,
+      seatsAvailable: Math.max(0, (Number(event.capacity) || 0) - (eventRegistrationsByEventId[event.id] || 0)),
+      isFamilyRegistered: Boolean(familyRegistrationLookup[event.id]),
+      familyRegistrationId: familyRegistrationLookup[event.id]?.id || '',
+    }))
+
+  const eventLookup = Object.fromEntries(enrichedEvents.map((event) => [event.id, event]))
+  const latestIntentByLinkedTransaction = {}
+  for (const intent of paymentIntents) {
+    const linkedTransactionId = ensureRequiredString(intent.linkedTransactionId)
+    if (!linkedTransactionId) continue
+    const current = latestIntentByLinkedTransaction[linkedTransactionId]
+    if (!current || String(intent.initiatedAt || '') > String(current.initiatedAt || '')) {
+      latestIntentByLinkedTransaction[linkedTransactionId] = intent
+    }
+  }
+
+  const transactionsById = Object.fromEntries(transactions.map((transaction) => [transaction.id, transaction]))
+  const enrichedRegistrations = eventRegistrations.map((registration) => {
+    const event = eventLookup[registration.eventId] || null
+    const linkedTransaction = registration.transactionId
+      ? transactionsById[registration.transactionId] || null
+      : null
+    const latestPaymentIntent = registration.transactionId
+      ? latestIntentByLinkedTransaction[registration.transactionId] || null
+      : null
+    const totalAmount = Number(linkedTransaction?.amount) || (Number(event?.feePerFamily || 0) * (Number(registration.seats) || 0))
+    const intentStatus = ensureRequiredString(latestPaymentIntent?.status)
+    const linkedTransactionStatus = ensureRequiredString(linkedTransaction?.status)
+    const paymentStatus =
+      ensureRequiredString(registration.paymentStatus) ||
+      (linkedTransactionStatus === 'Paid'
+        ? 'Paid'
+        : intentStatus === 'Proof Submitted'
+          ? 'Proof Submitted'
+          : intentStatus === 'Pending'
+            ? 'Pending'
+            : Number(event?.feePerFamily || 0) > 0
+              ? 'Pending'
+              : 'Not Required')
+    const approvalStatus =
+      ensureRequiredString(registration.approvalStatus) ||
+      (linkedTransactionStatus === 'Paid' || paymentStatus === 'Not Required'
+        ? 'Approved'
+        : intentStatus === 'Failed' || paymentStatus === 'Payment Failed'
+          ? 'Rejected'
+          : paymentStatus === 'Proof Submitted'
+            ? 'Pending Verification'
+            : 'Pending Payment')
+    const canPayNow = Boolean(
+      linkedTransaction &&
+      linkedTransaction.status === 'Pledged' &&
+      !linkedTransaction.cancelled,
+    )
+
+    return {
+      ...registration,
+      paymentStatus,
+      approvalStatus,
+      eventName: event?.name || registration.eventId,
+      eventDate: event?.date || '',
+      eventHall: event?.hall || '',
+      eventFeePerFamily: Number(event?.feePerFamily || 0),
+      totalAmount,
+      canPayNow,
+      linkedTransaction: linkedTransaction
+        ? {
+            id: linkedTransaction.id,
+            amount: Number(linkedTransaction.amount) || 0,
+            status: linkedTransaction.status || '',
+            dueDate: linkedTransaction.dueDate || '',
+            cancelled: Boolean(linkedTransaction.cancelled),
+          }
+        : null,
+      latestPaymentIntent: latestPaymentIntent
+        ? {
+            id: latestPaymentIntent.id,
+            status: latestPaymentIntent.status || '',
+            initiatedAt: latestPaymentIntent.initiatedAt || '',
+            linkedTransactionId: latestPaymentIntent.linkedTransactionId || '',
+          }
+        : null,
+    }
+  })
 
   return {
     family,
@@ -97,7 +197,8 @@ function buildFamilyPortalSummary(db, familyId) {
     paymentIntents,
     receipts,
     bookings,
-    eventRegistrations,
+    events: enrichedEvents,
+    eventRegistrations: enrichedRegistrations,
   }
 }
 

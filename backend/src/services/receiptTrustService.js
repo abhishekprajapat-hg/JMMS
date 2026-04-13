@@ -11,7 +11,7 @@ function formatReceiptNumber(sequenceNumber) {
 }
 
 function getRuntimeEnvPath() {
-  const overridePath = String(process.env.JMMS_RUNTIME_ENV_PATH || '').trim()
+  const overridePath = String(process.env.PUNYANIDHI_RUNTIME_ENV_PATH || '').trim()
   return overridePath ? path.resolve(overridePath) : DEFAULT_RUNTIME_ENV_PATH
 }
 

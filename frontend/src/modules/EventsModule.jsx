@@ -23,12 +23,36 @@ function getInitialRegisterForm(events, families) {
   }
 }
 
-export function EventsModule({ authToken, families, eventHalls, permissions, onNotice, onRefreshTransactions }) {
+function formatDateTime(value) {
+  if (!value) return '-'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '-'
+  return parsed.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+export function EventsModule({
+  authToken,
+  families,
+  eventHalls,
+  transactions = [],
+  permissions,
+  onNotice,
+  onRefreshTransactions,
+}) {
   const [loading, setLoading] = useState(false)
+  const [intentsLoading, setIntentsLoading] = useState(false)
   const [events, setEvents] = useState([])
   const [registrations, setRegistrations] = useState([])
+  const [paymentIntents, setPaymentIntents] = useState([])
   const [eventForm, setEventForm] = useState(() => getInitialEventForm(eventHalls))
   const [registerForm, setRegisterForm] = useState(() => getInitialRegisterForm([], families))
+  const [selectedRegistrationId, setSelectedRegistrationId] = useState('')
 
   const familyLookup = useMemo(
     () => Object.fromEntries(families.map((family) => [family.familyId, family.headName])),
@@ -38,10 +62,38 @@ export function EventsModule({ authToken, families, eventHalls, permissions, onN
     () => Object.fromEntries(events.map((event) => [event.id, event])),
     [events],
   )
+  const transactionLookup = useMemo(
+    () => Object.fromEntries(transactions.map((transaction) => [transaction.id, transaction])),
+    [transactions],
+  )
+  const canViewPaymentIntents = Boolean(
+    permissions.managePayments ||
+      permissions.reconcilePayments ||
+      permissions.logDonations ||
+      permissions.viewFinancialTotals,
+  )
+  const paymentIntentByTransactionId = useMemo(() => {
+    const lookup = {}
+    paymentIntents.forEach((intent) => {
+      if (!intent.linkedTransactionId || lookup[intent.linkedTransactionId]) return
+      lookup[intent.linkedTransactionId] = intent
+    })
+    return lookup
+  }, [paymentIntents])
+  const selectedRegistration = useMemo(
+    () => registrations.find((registration) => registration.id === selectedRegistrationId) || null,
+    [registrations, selectedRegistrationId],
+  )
+  const selectedTransaction = selectedRegistration?.transactionId
+    ? transactionLookup[selectedRegistration.transactionId] || null
+    : null
+  const selectedPaymentIntent = selectedRegistration?.transactionId
+    ? paymentIntentByTransactionId[selectedRegistration.transactionId] || null
+    : null
 
-  async function loadEvents() {
+  async function loadEvents({ silent = false } = {}) {
     if (!authToken) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       const response = await apiRequest('/events', { token: authToken })
       setEvents(response.events || [])
@@ -49,7 +101,23 @@ export function EventsModule({ authToken, families, eventHalls, permissions, onN
     } catch (error) {
       onNotice('error', error.message)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
+    }
+  }
+
+  async function loadPaymentIntents({ silent = false } = {}) {
+    if (!authToken || !canViewPaymentIntents) {
+      setPaymentIntents([])
+      return
+    }
+    setIntentsLoading(true)
+    try {
+      const response = await apiRequest('/payments', { token: authToken })
+      setPaymentIntents(response.paymentIntents || [])
+    } catch (error) {
+      if (!silent) onNotice('error', error.message)
+    } finally {
+      setIntentsLoading(false)
     }
   }
 
@@ -57,6 +125,11 @@ export function EventsModule({ authToken, families, eventHalls, permissions, onN
     loadEvents()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authToken])
+
+  useEffect(() => {
+    loadPaymentIntents({ silent: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authToken, canViewPaymentIntents])
 
   useEffect(() => {
     setEventForm((current) => ({
@@ -80,6 +153,13 @@ export function EventsModule({ authToken, families, eventHalls, permissions, onN
       }
     })
   }, [events, families])
+
+  useEffect(() => {
+    if (!selectedRegistrationId) return
+    if (!registrations.some((registration) => registration.id === selectedRegistrationId)) {
+      setSelectedRegistrationId('')
+    }
+  }, [registrations, selectedRegistrationId])
 
   async function handleCreateEvent(event) {
     event.preventDefault()
@@ -134,7 +214,7 @@ export function EventsModule({ authToken, families, eventHalls, permissions, onN
       })
       setRegistrations((current) => [response.registration, ...current])
       setRegisterForm((current) => ({ ...current, notes: '' }))
-      await loadEvents()
+      await loadEvents({ silent: true })
       if (response.transaction) {
         await onRefreshTransactions()
         onNotice('success', `Registration complete. Pledge ${response.transaction.id} created.`)
@@ -161,6 +241,57 @@ export function EventsModule({ authToken, families, eventHalls, permissions, onN
         ),
       )
       onNotice('success', `Registration ${registrationId} checked in.`)
+    } catch (error) {
+      onNotice('error', error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function openVerification(registrationId) {
+    setSelectedRegistrationId(registrationId)
+    if (canViewPaymentIntents) {
+      await loadPaymentIntents({ silent: true })
+    }
+  }
+
+  async function reconcileSelectedPayment(outcome) {
+    if (!selectedRegistration) {
+      onNotice('error', 'Select a registration first.')
+      return
+    }
+    if (!selectedPaymentIntent) {
+      onNotice('error', 'No payment intent found for this registration.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await apiRequest(`/payments/${selectedPaymentIntent.id}/reconcile`, {
+        method: 'POST',
+        token: authToken,
+        body: {
+          outcome,
+          providerReference: selectedPaymentIntent.payerUtr || `UTR-VERIFY-${Date.now()}`,
+          transactionType: selectedPaymentIntent.transactionType || '',
+          fundCategory: selectedPaymentIntent.fundCategory || '',
+          failureReason: outcome === 'failed' ? 'Payment proof rejected from event verification.' : '',
+        },
+      })
+      setPaymentIntents((current) =>
+        current.map((intent) => (intent.id === selectedPaymentIntent.id ? response.paymentIntent : intent)),
+      )
+      await loadEvents({ silent: true })
+      await loadPaymentIntents({ silent: true })
+      if (response.settledTransaction) {
+        await onRefreshTransactions()
+        onNotice(
+          'success',
+          `Registration ${selectedRegistration.id} approved and transaction ${response.settledTransaction.id} settled.`,
+        )
+      } else {
+        onNotice('success', `Payment ${selectedPaymentIntent.id} marked ${response.paymentIntent.status}.`)
+      }
     } catch (error) {
       onNotice('error', error.message)
     } finally {
@@ -348,6 +479,7 @@ export function EventsModule({ authToken, families, eventHalls, permissions, onN
                 <th>Family</th>
                 <th>Seats</th>
                 <th>Payment</th>
+                <th>Approval</th>
                 <th>Pledge TXN</th>
                 <th>Check-In</th>
                 <th>Action</th>
@@ -356,16 +488,29 @@ export function EventsModule({ authToken, families, eventHalls, permissions, onN
             <tbody>
               {registrations.length === 0 && (
                 <tr>
-                  <td colSpan="8">No registrations yet.</td>
+                  <td colSpan="9">No registrations yet.</td>
                 </tr>
               )}
               {registrations.map((registration) => (
-                <tr key={registration.id}>
+                <tr
+                  key={registration.id}
+                  className={`registration-row${selectedRegistrationId === registration.id ? ' is-selected' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open verification for ${registration.id}`}
+                  onClick={() => openVerification(registration.id)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return
+                    event.preventDefault()
+                    openVerification(registration.id)
+                  }}
+                >
                   <td>{registration.id}</td>
                   <td>{eventLookup[registration.eventId]?.name || registration.eventId}</td>
                   <td>{familyLookup[registration.familyId] || registration.familyId}</td>
                   <td>{registration.seats}</td>
                   <td>{registration.paymentStatus}</td>
+                  <td>{registration.approvalStatus || '-'}</td>
                   <td>{registration.transactionId || '-'}</td>
                   <td>{registration.checkedInAt ? formatDate(registration.checkedInAt) : '-'}</td>
                   <td>
@@ -373,7 +518,10 @@ export function EventsModule({ authToken, families, eventHalls, permissions, onN
                       <button
                         type="button"
                         className="secondary-btn"
-                        onClick={() => markCheckIn(registration.id)}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          markCheckIn(registration.id)
+                        }}
                         disabled={loading}
                       >
                         Check-In
@@ -386,6 +534,144 @@ export function EventsModule({ authToken, families, eventHalls, permissions, onN
               ))}
             </tbody>
           </table>
+        </div>
+
+        <div className="registration-verify-panel">
+          <div className="panel-head">
+            <h3>Registration Verification</h3>
+            <p>Click a registration row to open payment proof details and verify approval.</p>
+          </div>
+
+          {!selectedRegistration ? (
+            <p className="hint">Select any registration from the list above.</p>
+          ) : (
+            <>
+              <div className="registration-verify-grid">
+                <div className="registration-verify-item">
+                  <span>Registration</span>
+                  <strong>{selectedRegistration.id}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Event</span>
+                  <strong>{eventLookup[selectedRegistration.eventId]?.name || selectedRegistration.eventId}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Family</span>
+                  <strong>{familyLookup[selectedRegistration.familyId] || selectedRegistration.familyId}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Seats</span>
+                  <strong>{selectedRegistration.seats}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Payment Status</span>
+                  <strong>{selectedRegistration.paymentStatus || '-'}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Approval Status</span>
+                  <strong>{selectedRegistration.approvalStatus || '-'}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Pledge Transaction</span>
+                  <strong>{selectedRegistration.transactionId || '-'}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Registered At</span>
+                  <strong>{formatDateTime(selectedRegistration.registeredAt)}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Pledge Amount</span>
+                  <strong>{selectedTransaction ? formatCurrency(selectedTransaction.amount) : '-'}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Pledge Status</span>
+                  <strong>{selectedTransaction?.status || '-'}</strong>
+                </div>
+              </div>
+
+              <div className="registration-verify-grid">
+                <div className="registration-verify-item">
+                  <span>Payment Intent</span>
+                  <strong>{selectedPaymentIntent?.id || '-'}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Intent Status</span>
+                  <strong>{selectedPaymentIntent?.status || '-'}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Gateway</span>
+                  <strong>{selectedPaymentIntent?.gateway || '-'}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>UTR</span>
+                  <strong>{selectedPaymentIntent?.payerUtr || '-'}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Payer Name</span>
+                  <strong>{selectedPaymentIntent?.payerName || '-'}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Proof Submitted</span>
+                  <strong>{formatDateTime(selectedPaymentIntent?.proofSubmittedAt)}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Provider Ref</span>
+                  <strong>{selectedPaymentIntent?.providerReference || '-'}</strong>
+                </div>
+                <div className="registration-verify-item">
+                  <span>Reconciled At</span>
+                  <strong>{formatDateTime(selectedPaymentIntent?.reconciledAt)}</strong>
+                </div>
+              </div>
+
+              {selectedPaymentIntent?.failureReason ? (
+                <p className="hint">Failure reason: {selectedPaymentIntent.failureReason}</p>
+              ) : null}
+
+              <div className="action-row registration-verify-actions">
+                {canViewPaymentIntents ? (
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={() => loadPaymentIntents()}
+                    disabled={loading || intentsLoading}
+                  >
+                    {intentsLoading ? 'Refreshing...' : 'Refresh Payment Details'}
+                  </button>
+                ) : null}
+
+                {['Pending', 'Proof Submitted'].includes(selectedPaymentIntent?.status) && permissions.reconcilePayments ? (
+                  <>
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      onClick={() => reconcileSelectedPayment('success')}
+                      disabled={loading}
+                    >
+                      Verify + Approve
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      onClick={() => reconcileSelectedPayment('failed')}
+                      disabled={loading}
+                    >
+                      Reject
+                    </button>
+                  </>
+                ) : null}
+              </div>
+
+              {!selectedPaymentIntent ? (
+                <p className="hint">
+                  No linked payment intent found for this registration yet. User must submit payment proof first.
+                </p>
+              ) : null}
+              {selectedPaymentIntent && !permissions.reconcilePayments ? (
+                <p className="hint">Read-only mode: your role cannot verify/approve payments.</p>
+              ) : null}
+            </>
+          )}
         </div>
       </article>
     </section>

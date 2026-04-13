@@ -6,6 +6,11 @@ const { badRequest } = require('../utils/http')
 const { createId } = require('../utils/ids')
 const { ensureRequiredString } = require('../utils/validation')
 const { parseCsv, toCsv } = require('../utils/csv')
+const {
+  normalizeBookingRange,
+  withNormalizedBookingRange,
+  doesBookingRangeOverlap,
+} = require('../utils/bookingRange')
 const { resolveMandirId, filterByMandir, withMandir, getRecordMandirId } = require('../services/tenantService')
 
 const router = express.Router()
@@ -17,9 +22,10 @@ function canBypass(req) {
 router.get('/bookings', authorize('viewSchedule'), (req, res) => {
   const db = getDb()
   const mandirId = resolveMandirId(req, db)
+  const bookings = filterByMandir(db.poojaBookings, mandirId).map((booking) => withNormalizedBookingRange(booking))
   res.json({
     slots: POOJA_SLOTS,
-    bookings: filterByMandir(db.poojaBookings, mandirId),
+    bookings,
     mandirId,
   })
 })
@@ -27,7 +33,8 @@ router.get('/bookings', authorize('viewSchedule'), (req, res) => {
 router.get('/bookings/export/csv', authorize('viewSchedule'), (req, res) => {
   const db = getDb()
   const mandirId = resolveMandirId(req, db)
-  const payload = toCsv(filterByMandir(db.poojaBookings, mandirId), ['id', 'date', 'slot', 'familyId', 'notes', 'overridden'])
+  const bookings = filterByMandir(db.poojaBookings, mandirId).map((booking) => withNormalizedBookingRange(booking))
+  const payload = toCsv(bookings, ['id', 'date', 'startDate', 'endDate', 'slot', 'familyId', 'notes', 'overridden'])
   res.setHeader('Content-Type', 'text/csv; charset=utf-8')
   res.setHeader('Content-Disposition', 'attachment; filename="pooja_bookings.csv"')
   res.send(payload)
@@ -60,14 +67,18 @@ router.post('/bookings/import/csv', authorize('manageSchedule'), async (req, res
     const errors = []
 
     for (const [index, row] of rows.entries()) {
-      const date = ensureRequiredString(row.date || row.Date)
       const slot = ensureRequiredString(row.slot || row.Slot)
       const familyId = ensureRequiredString(row.familyId || row['Family ID'])
       const notes = ensureRequiredString(row.notes || row.Notes)
       const providedId = ensureRequiredString(row.id || row['Booking ID'])
+      const range = normalizeBookingRange({
+        date: row.date || row.Date,
+        startDate: row.startDate || row['Start Date'],
+        endDate: row.endDate || row['End Date'],
+      })
 
-      if (!date || !slot || !familyId) {
-        errors.push(`Row ${index + 2}: date, slot, and familyId are required.`)
+      if (!range || !slot || !familyId) {
+        errors.push(`Row ${index + 2}: date/startDate/endDate, slot, and familyId are required.`)
         skipped += 1
         continue
       }
@@ -83,8 +94,24 @@ router.post('/bookings/import/csv', authorize('manageSchedule'), async (req, res
       }
 
       const existingById = providedId ? tenantBookings.find((item) => item.id === providedId) : null
-      const existingBySlot = tenantBookings.find((item) => item.date === date && item.slot === slot)
-      const existing = existingById || existingBySlot
+      const existingByRange = tenantBookings.find(
+        (item) =>
+          item.slot === slot &&
+          (!existingById || item.id !== existingById.id) &&
+          doesBookingRangeOverlap(range, item),
+      )
+      const existing = existingById || existingByRange
+
+      if (existingById) {
+        const overlappingOther = tenantBookings.find(
+          (item) => item.id !== existingById.id && item.slot === slot && doesBookingRangeOverlap(range, item),
+        )
+        if (overlappingOther) {
+          errors.push(`Row ${index + 2}: selected date range overlaps with another booking for this slot.`)
+          skipped += 1
+          continue
+        }
+      }
 
       if (existing && mode !== 'upsert') {
         skipped += 1
@@ -93,7 +120,7 @@ router.post('/bookings/import/csv', authorize('manageSchedule'), async (req, res
 
       if (existing) {
         Object.assign(existing, {
-          date,
+          ...range,
           slot,
           familyId,
           notes,
@@ -103,7 +130,7 @@ router.post('/bookings/import/csv', authorize('manageSchedule'), async (req, res
       } else {
         const booking = withMandir({
           id: providedId || createId('POO'),
-          date,
+          ...range,
           slot,
           familyId,
           notes,
@@ -135,13 +162,17 @@ router.post('/bookings', authorize('manageSchedule'), async (req, res, next) => 
   try {
     const db = getDb()
     const mandirId = resolveMandirId(req, db)
-    const date = ensureRequiredString(req.body?.date)
+    const range = normalizeBookingRange({
+      date: req.body?.date,
+      startDate: req.body?.startDate,
+      endDate: req.body?.endDate,
+    })
     const slot = ensureRequiredString(req.body?.slot)
     const familyId = ensureRequiredString(req.body?.familyId)
     const notes = ensureRequiredString(req.body?.notes)
 
-    if (!date || !slot || !familyId) {
-      throw badRequest('date, slot, and familyId are required.')
+    if (!range || !slot || !familyId) {
+      throw badRequest('date (or startDate/endDate), slot, and familyId are required.')
     }
     if (!POOJA_SLOTS.includes(slot)) {
       throw badRequest('Invalid pooja slot.')
@@ -151,15 +182,18 @@ router.post('/bookings', authorize('manageSchedule'), async (req, res, next) => 
     }
 
     const conflict = db.poojaBookings.find(
-      (booking) => booking.date === date && booking.slot === slot && getRecordMandirId(booking) === mandirId,
+      (booking) =>
+        booking.slot === slot &&
+        getRecordMandirId(booking) === mandirId &&
+        doesBookingRangeOverlap(range, booking),
     )
     if (conflict && !canBypass(req)) {
-      throw badRequest('This pooja slot is already booked for the selected date.')
+      throw badRequest('This pooja slot is already booked within the selected date range.')
     }
 
     const booking = withMandir({
       id: createId('POO'),
-      date,
+      ...range,
       slot,
       familyId,
       notes,
@@ -168,7 +202,7 @@ router.post('/bookings', authorize('manageSchedule'), async (req, res, next) => 
     db.poojaBookings.unshift(booking)
     await saveDb()
 
-    return res.status(201).json({ booking })
+    return res.status(201).json({ booking: withNormalizedBookingRange(booking) })
   } catch (error) {
     return next(error)
   }

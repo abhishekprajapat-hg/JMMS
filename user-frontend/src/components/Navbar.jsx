@@ -115,9 +115,7 @@ export function Navbar() {
         <div className="overflow-hidden rounded-[32px] border border-white/70 bg-white/72 shadow-[0_18px_50px_rgba(132,71,21,0.12)] backdrop-blur-2xl dark:border-white/8 dark:bg-[rgba(18,16,14,0.82)] dark:shadow-[0_22px_60px_rgba(0,0,0,0.35)]">
           <div className="flex items-center gap-3 px-4 py-4 sm:px-5">
             <Link to="/" className="focus-ring mr-auto flex min-w-0 items-center gap-3 rounded-full pr-2">
-              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[linear-gradient(135deg,#c2410c,#f59e0b)] text-xl font-bold text-white shadow-[0_14px_28px_rgba(194,65,12,0.28)]">
-                {'\u0950'}
-              </span>
+              <img src="/logo.png" alt={`${brandLabel} logo`} className="h-14 w-14 object-contain sm:h-16 sm:w-16" />
               <div className="min-w-0">
                 <p className="truncate font-serif text-[1.55rem] leading-none text-orange-950 dark:text-amber-50">{brandLabel}</p>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-orange-700 dark:text-orange-300">

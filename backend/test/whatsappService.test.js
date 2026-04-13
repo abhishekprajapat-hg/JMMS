@@ -12,8 +12,8 @@ function loadServiceWithMocks({ db, env, runtimeEnvPath } = {}) {
   const originalDbModule = require.cache[dbModulePath]
   const originalEnvModule = require.cache[envModulePath]
   const originalServiceModule = require.cache[serviceModulePath]
-  const originalRuntimeEnvPath = process.env.JMMS_RUNTIME_ENV_PATH
-  process.env.JMMS_RUNTIME_ENV_PATH = runtimeEnvPath || path.join(__dirname, '__missing_runtime__.env')
+  const originalRuntimeEnvPath = process.env.PUNYANIDHI_RUNTIME_ENV_PATH
+  process.env.PUNYANIDHI_RUNTIME_ENV_PATH = runtimeEnvPath || path.join(__dirname, '__missing_runtime__.env')
 
   let saveCount = 0
 
@@ -73,9 +73,9 @@ function loadServiceWithMocks({ db, env, runtimeEnvPath } = {}) {
     }
 
     if (originalRuntimeEnvPath === undefined) {
-      delete process.env.JMMS_RUNTIME_ENV_PATH
+      delete process.env.PUNYANIDHI_RUNTIME_ENV_PATH
     } else {
-      process.env.JMMS_RUNTIME_ENV_PATH = originalRuntimeEnvPath
+      process.env.PUNYANIDHI_RUNTIME_ENV_PATH = originalRuntimeEnvPath
     }
   }
 
@@ -278,7 +278,7 @@ test('sendWhatsAppTemplate prepares body and receipt button params for a custom 
     env: {
       receiptPublicBaseUrl: 'https://runtime.example',
       whatsappUseTemplateForReceipts: true,
-      whatsappTemplateInstantReceipt: 'jmms_receipt',
+      whatsappTemplateInstantReceipt: 'punyanidhi_receipt',
       whatsappTemplateSendFollowupText: false,
     },
   })
@@ -303,7 +303,7 @@ test('sendWhatsAppTemplate prepares body and receipt button params for a custom 
 
     assert.equal(log.status, 'Sent')
     assert.equal(fetchCalls.length, 1)
-    assert.equal(fetchCalls[0].meta.templateName, 'jmms_receipt')
+    assert.equal(fetchCalls[0].meta.templateName, 'punyanidhi_receipt')
     assert.deepEqual(fetchCalls[0].meta.templateBodyParams, ['Amit Jain', '1,100.00'])
     assert.deepEqual(fetchCalls[0].meta.templateButtonUrlParams, ['TRX-CUSTOM.pdf'])
     assert.equal(fetchCalls[0].meta.templateButtonUrlIndex, '0')
@@ -334,7 +334,7 @@ test('sendWhatsAppTemplate reads the latest backend env file without restart', a
     whatsAppRetryQueue: [],
   }
 
-  const runtimeEnvDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmms-whatsapp-runtime-'))
+  const runtimeEnvDir = fs.mkdtempSync(path.join(os.tmpdir(), 'punyanidhi-whatsapp-runtime-'))
   const runtimeEnvPath = path.join(runtimeEnvDir, '.env')
   fs.writeFileSync(
     runtimeEnvPath,

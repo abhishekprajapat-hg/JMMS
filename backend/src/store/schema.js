@@ -18,6 +18,19 @@ const TENANT_COLLECTION_KEYS = [
   'whatsAppRetryQueue',
 ]
 
+const CURRENT_TRUST_NAME = 'Shri Digambar Jain Sarvoday Dharmik and Parmarthik Trust'
+const LEGACY_TRUST_NAME_VARIANTS = [
+  'Shri Jain Shwetambar Mandir',
+  'Shree Jain Shwetamber Mandir',
+  'Shri Jain Shwetamber Mandir',
+]
+const LEGACY_LETTERHEAD_VARIANTS = [
+  'Shri Jain Shwetambar Mandir Trust',
+  'Shree Jain Shwetamber Mandir Trust',
+  'Shri Jain Shwetamber Mandir Trust',
+  ...LEGACY_TRUST_NAME_VARIANTS,
+]
+
 function ensureArray(value) {
   return Array.isArray(value) ? value : []
 }
@@ -31,6 +44,19 @@ function ensureObject(value) {
 
 function ensureNumber(value, fallback) {
   return Number.isFinite(value) ? value : fallback
+}
+
+function normalizeBrandText(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+}
+
+function isLegacyBrandValue(value, variants) {
+  const normalized = normalizeBrandText(value)
+  if (!normalized) return false
+  return variants.some((variant) => normalizeBrandText(variant) === normalized)
 }
 
 function isLikelyMongoObjectId(value) {
@@ -205,6 +231,46 @@ function ensureTenantScopedCollections(root) {
   return changed
 }
 
+function migrateLegacyMandirBranding(root) {
+  let changed = false
+
+  const mandirProfile = ensureObject(root.mandirProfile)
+  if (mandirProfile !== root.mandirProfile) {
+    root.mandirProfile = mandirProfile
+    changed = true
+  }
+
+  if (isLegacyBrandValue(mandirProfile.name, LEGACY_TRUST_NAME_VARIANTS)) {
+    mandirProfile.name = CURRENT_TRUST_NAME
+    changed = true
+  }
+  if (isLegacyBrandValue(mandirProfile.letterhead, LEGACY_LETTERHEAD_VARIANTS)) {
+    mandirProfile.letterhead = CURRENT_TRUST_NAME
+    changed = true
+  }
+
+  for (const mandir of ensureArray(root.mandirs)) {
+    if (!mandir || typeof mandir !== 'object') continue
+    if (isLegacyBrandValue(mandir.name, LEGACY_TRUST_NAME_VARIANTS)) {
+      mandir.name = CURRENT_TRUST_NAME
+      changed = true
+    }
+    if (isLegacyBrandValue(mandir.letterhead, LEGACY_LETTERHEAD_VARIANTS)) {
+      mandir.letterhead = CURRENT_TRUST_NAME
+      changed = true
+    }
+  }
+
+  if (root.paymentPortal && typeof root.paymentPortal === 'object' && !Array.isArray(root.paymentPortal)) {
+    if (isLegacyBrandValue(root.paymentPortal.payeeName, LEGACY_TRUST_NAME_VARIANTS)) {
+      root.paymentPortal.payeeName = CURRENT_TRUST_NAME
+      changed = true
+    }
+  }
+
+  return changed
+}
+
 function ensureDbShape(db) {
   let changed = false
 
@@ -245,6 +311,9 @@ function ensureDbShape(db) {
   }
 
   if (ensureMandirShape(root)) {
+    changed = true
+  }
+  if (migrateLegacyMandirBranding(root)) {
     changed = true
   }
   if (normalizeSingleMandirId(root)) {

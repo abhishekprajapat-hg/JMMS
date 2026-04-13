@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiRequest } from '../services/api'
 import { formatCurrency } from '../utils/validation'
+import { PaymentsSetupPage } from './payments/PaymentsSetupPage'
+import { PaymentsProofPage } from './payments/PaymentsProofPage'
+import { PaymentsVerificationPage } from './payments/PaymentsVerificationPage'
+
+const PAYMENT_PAGES = [
+  { id: 'setup', label: 'Setup & Intent', hint: 'Configure and create' },
+  { id: 'proof', label: 'Submit Proof', hint: 'Capture UTR details' },
+  { id: 'verification', label: 'Verify Payments', hint: 'Approve or reject' },
+]
 
 function getInitialForm(families, gateways, transactions) {
   const firstFamilyId = families[0]?.familyId || ''
@@ -26,6 +35,34 @@ function getInitialPortalConfig() {
   }
 }
 
+function normalizeText(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function getIntentCategory(intent, { eventTransactionIdSet, transactionLookup }) {
+  const linkedTransactionId = String(intent?.linkedTransactionId || '').trim()
+  if (!linkedTransactionId) {
+    return 'donation'
+  }
+
+  if (eventTransactionIdSet.has(linkedTransactionId)) {
+    return 'event_registration'
+  }
+
+  const note = normalizeText(intent?.note)
+  const source = normalizeText(intent?.source)
+  if (note.includes('event payment') || note.includes('event registration') || source.includes('event')) {
+    return 'event_registration'
+  }
+
+  const linkedTransaction = transactionLookup[linkedTransactionId]
+  if (normalizeText(linkedTransaction?.type) === 'boli' && note.includes('registration')) {
+    return 'event_registration'
+  }
+
+  return 'donation'
+}
+
 export function PaymentsModule({
   authToken,
   families,
@@ -35,7 +72,9 @@ export function PaymentsModule({
   onNotice,
   onRefreshTransactions,
 }) {
+  const [activePage, setActivePage] = useState('setup')
   const [intents, setIntents] = useState([])
+  const [eventTransactionIds, setEventTransactionIds] = useState([])
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState(() => getInitialForm(families, paymentGateways, transactions))
   const [portalConfig, setPortalConfig] = useState(getInitialPortalConfig)
@@ -49,6 +88,58 @@ export function PaymentsModule({
   const familyLookup = useMemo(
     () => Object.fromEntries(families.map((family) => [family.familyId, family.headName])),
     [families],
+  )
+  const transactionLookup = useMemo(
+    () => Object.fromEntries(transactions.map((transaction) => [transaction.id, transaction])),
+    [transactions],
+  )
+  const eventTransactionIdSet = useMemo(() => new Set(eventTransactionIds), [eventTransactionIds])
+  const enrichedIntents = useMemo(
+    () =>
+      intents.map((intent) => ({
+        ...intent,
+        paymentCategory: getIntentCategory(intent, { eventTransactionIdSet, transactionLookup }),
+      })),
+    [intents, eventTransactionIdSet, transactionLookup],
+  )
+  const eventRegistrationIntents = useMemo(
+    () => enrichedIntents.filter((intent) => intent.paymentCategory === 'event_registration'),
+    [enrichedIntents],
+  )
+  const donationIntents = useMemo(
+    () => enrichedIntents.filter((intent) => intent.paymentCategory !== 'event_registration'),
+    [enrichedIntents],
+  )
+  const pendingEventIntents = useMemo(
+    () => eventRegistrationIntents.filter((intent) => ['Pending', 'Proof Submitted'].includes(intent.status)),
+    [eventRegistrationIntents],
+  )
+  const pendingDonationIntents = useMemo(
+    () => donationIntents.filter((intent) => ['Pending', 'Proof Submitted'].includes(intent.status)),
+    [donationIntents],
+  )
+  const pendingIntents = useMemo(
+    () => [...pendingEventIntents, ...pendingDonationIntents],
+    [pendingEventIntents, pendingDonationIntents],
+  )
+  const proofSubmittedCount = useMemo(
+    () => enrichedIntents.filter((intent) => intent.status === 'Proof Submitted').length,
+    [enrichedIntents],
+  )
+  const successCount = useMemo(
+    () => enrichedIntents.filter((intent) => intent.status === 'Success').length,
+    [enrichedIntents],
+  )
+  const failedCount = useMemo(
+    () => enrichedIntents.filter((intent) => intent.status === 'Failed').length,
+    [enrichedIntents],
+  )
+  const totalSettledAmount = useMemo(
+    () =>
+      enrichedIntents
+        .filter((intent) => intent.status === 'Success')
+        .reduce((sum, intent) => sum + (Number(intent.amount) || 0), 0),
+    [enrichedIntents],
   )
 
   async function loadIntents() {
@@ -70,8 +161,22 @@ export function PaymentsModule({
     }
   }
 
+  async function loadEventRegistrationTransactionIds() {
+    if (!authToken) return
+    try {
+      const response = await apiRequest('/events', { token: authToken })
+      const ids = (response.registrations || [])
+        .map((registration) => String(registration.transactionId || '').trim())
+        .filter(Boolean)
+      setEventTransactionIds(ids)
+    } catch {
+      setEventTransactionIds([])
+    }
+  }
+
   useEffect(() => {
     loadIntents()
+    loadEventRegistrationTransactionIds()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authToken])
 
@@ -89,7 +194,7 @@ export function PaymentsModule({
   }, [families, paymentGateways])
 
   useEffect(() => {
-    const pendingIntent = intents.find((intent) => ['Pending', 'Proof Submitted'].includes(intent.status))
+    const pendingIntent = pendingIntents[0]
     setProofForm((current) => ({
       ...current,
       paymentId:
@@ -97,7 +202,7 @@ export function PaymentsModule({
           ? current.paymentId
           : pendingIntent?.id || '',
     }))
-  }, [intents])
+  }, [intents, pendingIntents])
 
   async function handleSavePortalConfig(event) {
     event.preventDefault()
@@ -186,6 +291,7 @@ export function PaymentsModule({
         ),
       )
       setProofForm((current) => ({ ...current, payerUtr: '', payerName: '' }))
+      await loadEventRegistrationTransactionIds()
       onNotice('success', `Proof submitted for ${response.paymentIntent.id}.`)
     } catch (error) {
       onNotice('error', error.message)
@@ -210,8 +316,9 @@ export function PaymentsModule({
         },
       })
       setIntents((current) =>
-        current.map((intent) => (intent.id === paymentId ? response.paymentIntent : intent)),
+        current.map((currentIntent) => (currentIntent.id === paymentId ? response.paymentIntent : currentIntent)),
       )
+      await loadEventRegistrationTransactionIds()
       if (response.settledTransaction) {
         await onRefreshTransactions()
         const targetPhone = String(response.whatsappLog?.phone || '').trim()
@@ -277,274 +384,117 @@ export function PaymentsModule({
     }
   }
 
+  function getPageCount(pageId) {
+    if (pageId === 'setup') return intents.length
+    if (pageId === 'proof') return pendingIntents.length
+    if (pageId === 'verification') return proofSubmittedCount
+    return 0
+  }
+
+  const activePageHint =
+    activePage === 'setup'
+      ? 'Configure payee channels and create payment intents quickly.'
+      : activePage === 'proof'
+        ? 'Collect UTR evidence and push entries into reviewer queue.'
+        : 'Review event and donation queues separately, then approve or reject.'
+
   return (
-    <section className="panel-grid two-column">
-      <article className="panel">
-        <div className="panel-head">
-          <h2>No-Commission Payment Portal</h2>
-          <p>Direct UPI and direct bank transfer collection with UTR proof and internal verification.</p>
-        </div>
-
-        {permissions.managePayments && (
-          <form className="stack-form" onSubmit={handleSavePortalConfig}>
-            <h3>Payee Configuration</h3>
-            <label>
-              UPI VPA
-              <input
-                value={portalConfig.upiVpa}
-                onChange={(event) => setPortalConfig((current) => ({ ...current, upiVpa: event.target.value }))}
-                placeholder="mandir@upi"
-              />
-            </label>
-            <label>
-              Payee Name
-              <input
-                value={portalConfig.payeeName}
-                onChange={(event) => setPortalConfig((current) => ({ ...current, payeeName: event.target.value }))}
-              />
-            </label>
-            <label>
-              Bank Name
-              <input
-                value={portalConfig.bankName}
-                onChange={(event) => setPortalConfig((current) => ({ ...current, bankName: event.target.value }))}
-              />
-            </label>
-            <label>
-              Account Number
-              <input
-                value={portalConfig.accountNumber}
-                onChange={(event) => setPortalConfig((current) => ({ ...current, accountNumber: event.target.value }))}
-              />
-            </label>
-            <label>
-              IFSC
-              <input
-                value={portalConfig.ifsc}
-                onChange={(event) => setPortalConfig((current) => ({ ...current, ifsc: event.target.value.toUpperCase() }))}
-              />
-            </label>
-            <button type="submit" disabled={loading}>Save Payee Config</button>
-          </form>
-        )}
-
-        {permissions.managePayments ? (
-          <form className="stack-form" onSubmit={handleCreateIntent}>
-            <h3>Create Direct Payment Intent</h3>
-            <label>
-              Family
-              <select
-                value={form.familyId}
-                onChange={(event) => setForm((current) => ({ ...current, familyId: event.target.value }))}
-              >
-                {families.map((family) => (
-                  <option key={family.familyId} value={family.familyId}>
-                    {family.familyId} - {family.headName}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              Linked Pledge (optional)
-              <select
-                value={form.linkedTransactionId}
-                onChange={(event) => {
-                  const transactionId = event.target.value
-                  const transaction = transactions.find((item) => item.id === transactionId)
-                  setForm((current) => ({
-                    ...current,
-                    linkedTransactionId: transactionId,
-                    amount: transaction ? String(transaction.amount) : current.amount,
-                  }))
-                }}
-              >
-                <option value="">No linked pledge</option>
-                {transactions
-                  .filter((transaction) => transaction.status === 'Pledged' && !transaction.cancelled)
-                  .map((transaction) => (
-                    <option key={transaction.id} value={transaction.id}>
-                      {transaction.id} - {formatCurrency(transaction.amount)}
-                    </option>
-                  ))}
-              </select>
-            </label>
-
-            <label>
-              Collection Mode
-              <select
-                value={form.gateway}
-                onChange={(event) => setForm((current) => ({ ...current, gateway: event.target.value }))}
-              >
-                {paymentGateways.map((gateway) => (
-                  <option key={gateway} value={gateway}>
-                    {gateway}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              Amount (INR)
-              <input
-                type="number"
-                min="1"
-                value={form.amount}
-                onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
-              />
-            </label>
-
-            <label>
-              Note
-              <input
-                value={form.note}
-                onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
-              />
-            </label>
-
-            <button type="submit" disabled={loading}>Create Intent</button>
-          </form>
-        ) : (
-          <p className="hint">Your role can reconcile or view direct payment intents.</p>
-        )}
-
-        {latestInstructions && (
-          <div className="stack-form">
-            <h3>Latest Payment Instructions ({latestInstructions.paymentId})</h3>
-            <p className="hint">Preferred: {latestInstructions.preferredGateway || '-'}</p>
-            {latestInstructions.upiLink ? (
-              <div>
-                <p className="hint">UPI Link: {latestInstructions.upiLink}</p>
-                <a href={latestInstructions.upiLink}>Pay via UPI App</a>
-                {latestInstructions.upiQrDataUrl && (
-                  <img src={latestInstructions.upiQrDataUrl} alt="UPI QR" className="qr-preview" />
-                )}
-              </div>
-            ) : (
-              <p className="hint">UPI is not configured for this mandir.</p>
-            )}
-            {latestInstructions.bankTransfer ? (
-              <div>
-                <p className="hint">Bank: {latestInstructions.bankTransfer.bankName || '-'}</p>
-                <p className="hint">A/C: {latestInstructions.bankTransfer.accountNumber || '-'}</p>
-                <p className="hint">IFSC: {latestInstructions.bankTransfer.ifsc || '-'}</p>
-                <p className="hint">Payee: {latestInstructions.bankTransfer.payeeName || '-'}</p>
-              </div>
-            ) : (
-              <p className="hint">Bank transfer details are not configured for this mandir.</p>
-            )}
+    <section className="panel-grid payments-page-layout">
+      <article className="panel payments-shell">
+        <div className="payments-shell-head">
+          <div className="panel-head">
+            <h2>Payments Command Center</h2>
+            <p>Focused workspace for setup, proof collection, and final verification.</p>
           </div>
-        )}
-      </article>
-
-      <article className="panel">
-        <div className="panel-head">
-          <h2>Verification Console</h2>
-          <p>Donor submits UTR proof, then staff verifies and auto-closes pledge with receipt.</p>
+          <div className="payments-live-state">
+            <span className={`payments-live-dot${loading ? ' is-loading' : ''}`} />
+            <span>{loading ? 'Refreshing...' : 'Live status sync on'}</span>
+          </div>
         </div>
 
-        <form className="stack-form" onSubmit={handleSubmitProof}>
-          <h3>Submit UTR Proof</h3>
-          <label>
-            Payment Intent
-            <select
-              value={proofForm.paymentId}
-              onChange={(event) => setProofForm((current) => ({ ...current, paymentId: event.target.value }))}
+        <div className="payments-overview-grid">
+          <div className="payments-overview-card">
+            <span>Total Intents</span>
+            <strong>{intents.length}</strong>
+            <small>all payment records</small>
+          </div>
+          <div className="payments-overview-card is-warning">
+            <span>Pending Actions</span>
+            <strong>{pendingIntents.length}</strong>
+            <small>{proofSubmittedCount} proof-submitted</small>
+          </div>
+          <div className="payments-overview-card is-success">
+            <span>Settled Amount</span>
+            <strong>{formatCurrency(totalSettledAmount)}</strong>
+            <small>{successCount} successful payments</small>
+          </div>
+          <div className="payments-overview-card is-muted">
+            <span>Failed Payments</span>
+            <strong>{failedCount}</strong>
+            <small>requires follow-up</small>
+          </div>
+        </div>
+
+        <div className="payments-page-tabs" role="tablist" aria-label="Payments pages">
+          {PAYMENT_PAGES.map((page) => (
+            <button
+              key={page.id}
+              type="button"
+              role="tab"
+              aria-selected={activePage === page.id}
+              className={`make-chip-btn payments-tab-btn${activePage === page.id ? ' active' : ''}`}
+              onClick={() => setActivePage(page.id)}
             >
-              {intents
-                .filter((intent) => ['Pending', 'Proof Submitted'].includes(intent.status))
-                .map((intent) => (
-                  <option key={intent.id} value={intent.id}>
-                    {intent.id} - {formatCurrency(intent.amount)}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label>
-            UTR / Reference
-            <input
-              value={proofForm.payerUtr}
-              onChange={(event) => setProofForm((current) => ({ ...current, payerUtr: event.target.value }))}
-            />
-          </label>
-          <label>
-            Payer Name (optional)
-            <input
-              value={proofForm.payerName}
-              onChange={(event) => setProofForm((current) => ({ ...current, payerName: event.target.value }))}
-            />
-          </label>
-          <button type="submit" disabled={loading}>Submit Proof</button>
-        </form>
-
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Payment ID</th>
-                <th>Family</th>
-                <th>Amount</th>
-                <th>Mode</th>
-                <th>Status</th>
-                <th>UTR</th>
-                <th>Linked TXN</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {intents.length === 0 && (
-                <tr>
-                  <td colSpan="8">No payment intents yet.</td>
-                </tr>
-              )}
-              {intents.map((intent) => (
-                <tr key={intent.id}>
-                  <td>{intent.id}</td>
-                  <td>{familyLookup[intent.familyId] || intent.familyId}</td>
-                  <td>{formatCurrency(intent.amount)}</td>
-                  <td>{intent.gateway}</td>
-                  <td>{intent.status}</td>
-                  <td>{intent.payerUtr || '-'}</td>
-                  <td>{intent.linkedTransactionId || '-'}</td>
-                  <td>
-                    {['Pending', 'Proof Submitted'].includes(intent.status) && permissions.reconcilePayments ? (
-                      <div className="action-row">
-                        <button
-                          type="button"
-                          className="secondary-btn"
-                          onClick={() => reconcileIntent(intent.id, 'success')}
-                          disabled={loading}
-                        >
-                          Verify + Settle
-                        </button>
-                        <button
-                          type="button"
-                          className="secondary-btn"
-                          onClick={() => reconcileIntent(intent.id, 'failed')}
-                          disabled={loading}
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    ) : intent.status === 'Success' && permissions.reconcilePayments ? (
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        onClick={() => resendReceipt(intent.id)}
-                        disabled={loading}
-                      >
-                        Resend Receipt
-                      </button>
-                    ) : (
-                      '-'
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              <span className="payments-tab-label">{page.label}</span>
+              <span className="payments-tab-hint">{page.hint}</span>
+              <span className="payments-tab-count">{getPageCount(page.id)}</span>
+            </button>
+          ))}
         </div>
+
+        <p className="hint payments-page-hint">{activePageHint}</p>
       </article>
+
+      {activePage === 'setup' && (
+        <PaymentsSetupPage
+          permissions={permissions}
+          loading={loading}
+          portalConfig={portalConfig}
+          setPortalConfig={setPortalConfig}
+          onSavePortalConfig={handleSavePortalConfig}
+          form={form}
+          setForm={setForm}
+          families={families}
+          transactions={transactions}
+          paymentGateways={paymentGateways}
+          onCreateIntent={handleCreateIntent}
+          latestInstructions={latestInstructions}
+        />
+      )}
+
+      {activePage === 'proof' && (
+        <PaymentsProofPage
+          loading={loading}
+          proofForm={proofForm}
+          setProofForm={setProofForm}
+          onSubmitProof={handleSubmitProof}
+          pendingIntents={pendingIntents}
+          pendingEventIntents={pendingEventIntents}
+          pendingDonationIntents={pendingDonationIntents}
+        />
+      )}
+
+      {activePage === 'verification' && (
+        <PaymentsVerificationPage
+          eventRegistrationIntents={eventRegistrationIntents}
+          donationIntents={donationIntents}
+          familyLookup={familyLookup}
+          loading={loading}
+          permissions={permissions}
+          onReconcile={reconcileIntent}
+          onResendReceipt={resendReceipt}
+        />
+      )}
     </section>
   )
 }

@@ -6,15 +6,15 @@ import { pickByLanguage } from '../utils/i18n'
 const AppContext = createContext(null)
 
 const STORAGE_KEYS = {
-  sessionToken: 'jmms_devotee_token_v3',
-  darkMode: 'jmms_dark_mode_v3',
-  userPrefs: 'jmms_user_prefs_v3',
-  language: 'jmms_language_v1',
+  sessionToken: 'punyanidhi_devotee_token_v3',
+  darkMode: 'punyanidhi_dark_mode_v3',
+  userPrefs: 'punyanidhi_user_prefs_v3',
+  language: 'punyanidhi_language_v1',
 }
 
 const SESSION_CACHE_KEYS = {
-  homeData: 'jmms_public_home_cache_v1',
-  library: 'jmms_public_library_cache_v1',
+  homeData: 'punyanidhi_public_home_cache_v1',
+  library: 'punyanidhi_public_library_cache_v1',
 }
 
 const SESSION_CACHE_TTL_MS = {
@@ -34,6 +34,7 @@ const DEFAULT_FUND_CATEGORIES = [
   'Aahar Daan',
   'General Fund',
 ]
+const BRAND_NAME = 'PUNYANIDHI'
 
 function readJsonStorage(key, fallbackValue) {
   if (typeof window === 'undefined') return fallbackValue
@@ -222,7 +223,10 @@ export function AppProvider({ children }) {
   const paymentGateways = userData?.paymentGateways?.length ? userData.paymentGateways : DEFAULT_PAYMENT_GATEWAYS
   const fundCategories = userData?.fundCategories?.length ? userData.fundCategories : DEFAULT_FUND_CATEGORIES
   const paymentPortal = userData?.paymentPortal || {}
-  const mandirProfile = userData?.mandirProfile || homeData?.mandirProfile || {}
+  const mandirProfile = {
+    ...(userData?.mandirProfile || homeData?.mandirProfile || {}),
+    name: BRAND_NAME,
+  }
   const pendingPaymentIntents = userData?.summary?.paymentIntents || []
 
   function applyThemeToDocument(isDark) {
@@ -458,6 +462,19 @@ export function AppProvider({ children }) {
     }
   }
 
+  function resolvePaymentGateway({ preferredGateway = '', paymentMethod = '' } = {}) {
+    if (preferredGateway && paymentGateways.includes(preferredGateway)) {
+      return preferredGateway
+    }
+    const prefersUpi = String(paymentMethod || '').toLowerCase().includes('upi')
+    const upiGateway = paymentGateways.find((gateway) => /upi/i.test(gateway))
+    const bankGateway = paymentGateways.find((gateway) => /bank/i.test(gateway))
+
+    return prefersUpi
+      ? (upiGateway || paymentGateways[0] || DEFAULT_PAYMENT_GATEWAYS[0])
+      : (bankGateway || paymentGateways[0] || DEFAULT_PAYMENT_GATEWAYS[1])
+  }
+
   async function addDonation(donationInput) {
     if (!sessionToken) {
       return {
@@ -473,12 +490,7 @@ export function AppProvider({ children }) {
       ? donationInput.purpose
       : (fundCategories.find((item) => item === 'General Fund') || fundCategories[0] || 'General Fund')
 
-    const prefersUpi = String(donationInput.paymentMethod || '').toLowerCase().includes('upi')
-    const upiGateway = paymentGateways.find((gateway) => /upi/i.test(gateway))
-    const bankGateway = paymentGateways.find((gateway) => /bank/i.test(gateway))
-    const gateway = prefersUpi
-      ? (upiGateway || paymentGateways[0] || DEFAULT_PAYMENT_GATEWAYS[0])
-      : (bankGateway || paymentGateways[0] || DEFAULT_PAYMENT_GATEWAYS[1])
+    const gateway = resolvePaymentGateway({ paymentMethod: donationInput.paymentMethod })
 
     setWorking(true)
     try {
@@ -512,6 +524,135 @@ export function AppProvider({ children }) {
             bankTransfer: response.bankTransfer || null,
           },
         },
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        message: error.message,
+      }
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function createEventPaymentIntent({
+    linkedTransactionId,
+    note = 'Event payment',
+    preferredGateway = '',
+  }) {
+    if (!sessionToken) {
+      return {
+        ok: false,
+        message: pickByLanguage(language, {
+          en: 'Please login before starting event payment.',
+          hi: 'Event payment shuru karne se pehle कृपया login karein.',
+        }),
+      }
+    }
+
+    if (!String(linkedTransactionId || '').trim()) {
+      return {
+        ok: false,
+        message: pickByLanguage(language, {
+          en: 'Missing linked transaction for event payment.',
+          hi: 'Event payment ke liye linked transaction nahi mila.',
+        }),
+      }
+    }
+
+    const gateway = resolvePaymentGateway({
+      preferredGateway,
+      paymentMethod: 'UPI',
+    })
+
+    setWorking(true)
+    try {
+      const response = await apiRequest('/user/payments/intents', {
+        method: 'POST',
+        token: sessionToken,
+        body: {
+          linkedTransactionId,
+          gateway,
+          note,
+        },
+      })
+      await refreshUserData(sessionToken, { silent: true })
+      const paymentIntent = response.paymentIntent || {}
+      return {
+        ok: true,
+        donation: {
+          id: paymentIntent.id,
+          amount: paymentIntent.amount,
+          purpose: note,
+          paymentMethod: gateway,
+          date: paymentIntent.initiatedAt || new Date().toISOString(),
+          status: paymentIntent.status || 'Pending',
+          instructions: {
+            preferredGateway: response.preferredGateway || '',
+            upiLink: response.upiLink || '',
+            upiQrDataUrl: response.upiQrDataUrl || '',
+            paymentLink: response.paymentLink || '',
+            bankTransfer: response.bankTransfer || null,
+          },
+        },
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        message: error.message,
+      }
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function registerForEvent({ eventId, seats, notes = '' }) {
+    if (!sessionToken) {
+      return {
+        ok: false,
+        message: pickByLanguage(language, {
+          en: 'Please login before registering for an event.',
+          hi: 'Event registration se pehle login karein.',
+        }),
+      }
+    }
+
+    const normalizedEventId = String(eventId || '').trim()
+    const normalizedSeats = Number(seats)
+    if (!normalizedEventId) {
+      return {
+        ok: false,
+        message: pickByLanguage(language, {
+          en: 'Missing event ID for registration.',
+          hi: 'Registration ke liye event select karein.',
+        }),
+      }
+    }
+    if (!Number.isInteger(normalizedSeats) || normalizedSeats < 1) {
+      return {
+        ok: false,
+        message: pickByLanguage(language, {
+          en: 'Seats must be a positive whole number.',
+          hi: 'Seats positive whole number hona chahiye.',
+        }),
+      }
+    }
+
+    setWorking(true)
+    try {
+      const response = await apiRequest(`/user/events/${normalizedEventId}/register`, {
+        method: 'POST',
+        token: sessionToken,
+        body: {
+          seats: normalizedSeats,
+          notes,
+        },
+      })
+      await refreshUserData(sessionToken, { silent: true })
+      return {
+        ok: true,
+        registration: response.registration || null,
+        transaction: response.transaction || null,
       }
     } catch (error) {
       return {
@@ -663,6 +804,8 @@ export function AppProvider({ children }) {
     logout,
     requestPasswordReset,
     addDonation,
+    createEventPaymentIntent,
+    registerForEvent,
     submitDonationProof,
     toggleSavedEbook,
     addWatchHistory,

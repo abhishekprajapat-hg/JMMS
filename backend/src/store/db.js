@@ -10,7 +10,7 @@ const DB_FILE = 'db.json'
 const RECEIPT_DIR_NAME = 'receipts'
 const UPLOAD_DIR_NAME = 'uploads'
 const LEGACY_SNAPSHOT_COLLECTION = 'snapshots'
-const LEGACY_SNAPSHOT_ID = 'jmms_main'
+const LEGACY_SNAPSHOT_ID = 'punyanidhi_main'
 
 const dbPath = path.join(env.dataDir, DB_FILE)
 const receiptDirPath = path.join(env.dataDir, RECEIPT_DIR_NAME)
@@ -23,9 +23,9 @@ function getMongoDbName(uri) {
   try {
     const parsed = new URL(uri)
     const name = parsed.pathname.replace('/', '')
-    return name || 'jmms'
+    return name || 'punyanidhi'
   } catch (_error) {
-    return 'jmms'
+    return 'punyanidhi'
   }
 }
 
@@ -37,11 +37,23 @@ async function readLegacySnapshot(mongoDb) {
     return null
   }
 
-  const snapshot = await mongoDb.collection(LEGACY_SNAPSHOT_COLLECTION).findOne({ _id: LEGACY_SNAPSHOT_ID })
-  if (!snapshot || !snapshot.payload || typeof snapshot.payload !== 'object' || Array.isArray(snapshot.payload)) {
+  const preferredSnapshot = await mongoDb.collection(LEGACY_SNAPSHOT_COLLECTION).findOne({ _id: LEGACY_SNAPSHOT_ID })
+  if (
+    preferredSnapshot &&
+    preferredSnapshot.payload &&
+    typeof preferredSnapshot.payload === 'object' &&
+    !Array.isArray(preferredSnapshot.payload)
+  ) {
+    return preferredSnapshot.payload
+  }
+
+  const fallbackSnapshot = await mongoDb.collection(LEGACY_SNAPSHOT_COLLECTION).findOne({
+    payload: { $type: 'object' },
+  })
+  if (!fallbackSnapshot || !fallbackSnapshot.payload || Array.isArray(fallbackSnapshot.payload)) {
     return null
   }
-  return snapshot.payload
+  return fallbackSnapshot.payload
 }
 
 async function cleanupLegacySnapshot(mongoDb) {

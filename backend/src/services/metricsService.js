@@ -1,4 +1,5 @@
 const { toISODate } = require('../utils/date')
+const { getBookingRange } = require('../utils/bookingRange')
 
 function computeDashboardMetrics({ db, timezone }) {
   const today = toISODate(new Date(), timezone)
@@ -18,7 +19,10 @@ function computeDashboardMetrics({ db, timezone }) {
   const overdueAssets = openCheckouts.filter(
     (checkout) => checkout.expectedReturnDate && checkout.expectedReturnDate < today,
   )
-  const upcomingSlots = db.poojaBookings.filter((booking) => booking.date >= today).length
+  const upcomingSlots = db.poojaBookings.filter((booking) => {
+    const range = getBookingRange(booking)
+    return Boolean(range && range.endDate >= today)
+  }).length
 
   return {
     today,

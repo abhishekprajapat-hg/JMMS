@@ -1,6 +1,6 @@
-# JMMS Frontend
+# Punyanidhi Frontend
 
-React + Vite admin frontend for the Jain Mandir Management System (JMMS).
+React + Vite admin frontend for the Punyanidhi management platform.
 
 ## Run Locally
 

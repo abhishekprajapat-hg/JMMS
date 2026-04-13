@@ -13,6 +13,7 @@ const { createId } = require('../utils/ids')
 const { generateReceiptPdf } = require('../services/receiptService')
 const { sendWhatsAppTemplate } = require('../services/whatsappService')
 const { ensureReceiptMetadata } = require('../services/receiptTrustService')
+const { updateEventRegistrationPaymentStatus } = require('../services/eventRegistrationService')
 const {
   resolveMandirId,
   filterByMandir,
@@ -80,7 +81,7 @@ async function buildPaymentInstructions(db, paymentIntent, mandirId) {
       pa: config.upiVpa,
       pn: config.payeeName || 'Mandir',
       am: String(paymentIntent.amount),
-      tn: `JMMS ${paymentIntent.id}`,
+      tn: `Punyanidhi ${paymentIntent.id}`,
       cu: 'INR',
     })
     const upiLink = `upi://pay?${params.toString()}`
@@ -280,6 +281,14 @@ router.post('/:paymentId/submit-proof', authorizeAny(['managePayments', 'accessD
     paymentIntent.payerName = ensureRequiredString(req.body?.payerName)
     paymentIntent.proofSubmittedAt = new Date().toISOString()
     paymentIntent.status = 'Proof Submitted'
+    if (paymentIntent.linkedTransactionId) {
+      updateEventRegistrationPaymentStatus(db.eventRegistrations, {
+        transactionId: paymentIntent.linkedTransactionId,
+        mandirId,
+        paymentStatus: 'Proof Submitted',
+        approvalStatus: 'Pending Verification',
+      })
+    }
 
     await saveDb()
     return res.json({ paymentIntent })
@@ -316,6 +325,14 @@ router.post('/:paymentId/reconcile', authorize('reconcilePayments'), async (req,
     if (outcome === 'failed') {
       paymentIntent.status = 'Failed'
       paymentIntent.failureReason = ensureRequiredString(req.body?.failureReason) || 'Gateway reconciliation failed.'
+      if (paymentIntent.linkedTransactionId) {
+        updateEventRegistrationPaymentStatus(db.eventRegistrations, {
+          transactionId: paymentIntent.linkedTransactionId,
+          mandirId,
+          paymentStatus: 'Payment Failed',
+          approvalStatus: 'Rejected',
+        })
+      }
       await saveDb()
       return res.json({ paymentIntent })
     }
@@ -361,6 +378,12 @@ router.post('/:paymentId/reconcile', authorize('reconcilePayments'), async (req,
       Object.assign(linked, withReceipt)
       settledTransaction = linked
       shouldSendReceipt = true
+      updateEventRegistrationPaymentStatus(db.eventRegistrations, {
+        transactionId: linked.id,
+        mandirId,
+        paymentStatus: 'Paid',
+        approvalStatus: 'Approved',
+      })
     } else {
       const requestedTransactionType = ensureRequiredString(req.body?.transactionType)
       const requestedFundCategory = ensureRequiredString(req.body?.fundCategory)

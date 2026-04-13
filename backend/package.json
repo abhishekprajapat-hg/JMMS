@@ -1,7 +1,7 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "Backend API for Jain Mandir Management System (JMMS)",
+  "description": "Backend API for Punyanidhi",
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",

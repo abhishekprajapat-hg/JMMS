@@ -10,14 +10,30 @@ const {
   FUND_CATEGORIES,
 } = require('../constants/domain')
 const { badRequest, unauthorized } = require('../utils/http')
-const { ensurePositiveNumber, ensureRequiredString, validateIndianWhatsApp } = require('../utils/validation')
+const {
+  ensurePositiveInteger,
+  ensurePositiveNumber,
+  ensureRequiredString,
+  validateIndianWhatsApp,
+} = require('../utils/validation')
 const { createId } = require('../utils/ids')
 const { hashPassword, verifyPassword } = require('../utils/passwords')
+const {
+  normalizeIsoDate,
+  normalizeBookingRange,
+  doesBookingRangeOverlap,
+  isDateWithinBooking,
+} = require('../utils/bookingRange')
 const {
   getPortalConfig,
   buildPaymentInstructions,
   buildFamilyPortalSummary,
 } = require('../services/portalService')
+const {
+  findEventRegistration,
+  getEventSeatsBooked,
+  updateEventRegistrationPaymentStatus,
+} = require('../services/eventRegistrationService')
 const {
   resolveMandirId,
   scopeDbByMandir,
@@ -63,8 +79,8 @@ function validateEmail(value) {
 }
 
 function ensureIsoDate(value) {
-  const date = ensureRequiredString(value)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  const date = normalizeIsoDate(value)
+  if (!date) {
     throw badRequest('date must be in YYYY-MM-DD format.')
   }
   return date
@@ -423,7 +439,7 @@ router.get('/bookings/availability', (req, res, next) => {
         (db.poojaBookings || [])
           .filter(
             (booking) =>
-              booking.date === date &&
+              isDateWithinBooking(date, booking) &&
               getRecordMandirId(booking) === context.mandirId &&
               POOJA_SLOTS.includes(booking.slot),
           )
@@ -448,12 +464,16 @@ router.post('/bookings', async (req, res, next) => {
   try {
     const db = getDb()
     const context = getAuthenticatedContext(db, req)
-    const date = ensureRequiredString(req.body?.date)
+    const range = normalizeBookingRange({
+      date: req.body?.date,
+      startDate: req.body?.startDate,
+      endDate: req.body?.endDate,
+    })
     const slot = ensureRequiredString(req.body?.slot)
     const notes = ensureRequiredString(req.body?.notes)
 
-    if (!date || !slot) {
-      throw badRequest('date and slot are required.')
+    if (!range || !slot) {
+      throw badRequest('date (or startDate/endDate) and slot are required.')
     }
     if (!POOJA_SLOTS.includes(slot)) {
       throw badRequest('Invalid pooja slot.')
@@ -461,18 +481,18 @@ router.post('/bookings', async (req, res, next) => {
 
     const conflict = (db.poojaBookings || []).find(
       (booking) =>
-        booking.date === date &&
         booking.slot === slot &&
+        doesBookingRangeOverlap(range, booking) &&
         getRecordMandirId(booking) === context.mandirId,
     )
     if (conflict) {
-      throw badRequest('This pooja slot is already booked for the selected date.')
+      throw badRequest('This pooja slot is already booked within the selected date range.')
     }
 
     const booking = withMandir(
       {
         id: createId('POO'),
-        date,
+        ...range,
         slot,
         familyId: context.family.familyId,
         notes: notes || 'Booked from devotee website',
@@ -484,6 +504,92 @@ router.post('/bookings', async (req, res, next) => {
     db.poojaBookings.unshift(booking)
     await saveDb()
     return res.status(201).json({ booking })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+router.post('/events/:eventId/register', async (req, res, next) => {
+  try {
+    const db = getDb()
+    const context = getAuthenticatedContext(db, req)
+    const event = (db.events || []).find(
+      (item) => item.id === req.params.eventId && getRecordMandirId(item) === context.mandirId,
+    )
+    if (!event) {
+      throw badRequest('Event not found.')
+    }
+
+    const seats = ensurePositiveInteger(req.body?.seats)
+    const notes = ensureRequiredString(req.body?.notes)
+    if (!seats) {
+      throw badRequest('seats is required and must be a positive integer.')
+    }
+
+    const duplicate = findEventRegistration(db.eventRegistrations, {
+      eventId: event.id,
+      familyId: context.family.familyId,
+      mandirId: context.mandirId,
+    })
+    if (duplicate) {
+      throw badRequest('Your family is already registered for this event.')
+    }
+
+    const seatsBooked = getEventSeatsBooked(db.eventRegistrations, {
+      eventId: event.id,
+      mandirId: context.mandirId,
+    })
+    if (seatsBooked + seats > Number(event.capacity || 0)) {
+      throw badRequest('Not enough seats available for this event.')
+    }
+
+    const registration = withMandir(
+      {
+        id: createId('REG'),
+        eventId: event.id,
+        familyId: context.family.familyId,
+        seats,
+        notes: notes || 'Registered from devotee profile',
+        registeredAt: new Date().toISOString(),
+        checkedInAt: '',
+        paymentStatus: Number(event.feePerFamily || 0) > 0 ? 'Pending' : 'Not Required',
+        approvalStatus: Number(event.feePerFamily || 0) > 0 ? 'Pending Payment' : 'Approved',
+        transactionId: '',
+        registeredBy: context.devoteeUser.id,
+      },
+      context.mandirId,
+    )
+
+    let transaction = null
+    if (Number(event.feePerFamily || 0) > 0) {
+      transaction = withMandir(
+        {
+          id: createId('TRX'),
+          familyId: context.family.familyId,
+          type: 'Boli',
+          fundCategory: 'General Fund',
+          status: 'Pledged',
+          amount: Number(event.feePerFamily || 0) * seats,
+          createdAt: new Date().toISOString(),
+          dueDate: event.date,
+          paidAt: '',
+          cancelled: false,
+          cancellationReason: '',
+          cancellationAt: '',
+          receiptPath: '',
+          receiptFileName: '',
+          receiptGeneratedBy: '',
+        },
+        context.mandirId,
+      )
+      db.transactions.unshift(transaction)
+      registration.transactionId = transaction.id
+    }
+
+    db.eventRegistrations.unshift(registration)
+    await saveDb()
+
+    return res.status(201).json({ registration, transaction })
   } catch (error) {
     return next(error)
   }
@@ -591,6 +697,16 @@ router.post('/payments/:paymentId/proof', async (req, res, next) => {
     paymentIntent.payerName = ensureRequiredString(req.body?.payerName)
     paymentIntent.proofSubmittedAt = new Date().toISOString()
     paymentIntent.status = 'Proof Submitted'
+
+    if (paymentIntent.linkedTransactionId) {
+      updateEventRegistrationPaymentStatus(db.eventRegistrations, {
+        transactionId: paymentIntent.linkedTransactionId,
+        mandirId: context.mandirId,
+        paymentStatus: 'Proof Submitted',
+        approvalStatus: 'Pending Verification',
+      })
+    }
+
     await saveDb()
 
     return res.json({ paymentIntent })

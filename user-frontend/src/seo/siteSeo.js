@@ -1,5 +1,5 @@
 export const DEFAULT_SITE_URL = 'https://nemnidhi.tech'
-export const DEFAULT_SITE_NAME = 'Shri Jain Shwetambar Mandir'
+export const DEFAULT_SITE_NAME = 'PUNYANIDHI'
 export const DEFAULT_OG_IMAGE = 'https://commons.wikimedia.org/wiki/Special:FilePath/Jain%20Temple.jpg'
 
 export const INDEXABLE_ROUTES = [

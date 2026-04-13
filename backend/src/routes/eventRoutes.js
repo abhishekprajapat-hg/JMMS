@@ -6,14 +6,19 @@ const { badRequest, notFound } = require('../utils/http')
 const { ensurePositiveInteger, ensurePositiveNumber, ensureRequiredString } = require('../utils/validation')
 const { createId } = require('../utils/ids')
 const { resolveMandirId, filterByMandir, withMandir, getRecordMandirId } = require('../services/tenantService')
+const {
+  getEventSeatsBooked,
+  findEventRegistration,
+} = require('../services/eventRegistrationService')
 
 const router = express.Router()
 
 function withSeatStats(events, registrations) {
   return events.map((event) => {
-    const seatsBooked = registrations
-      .filter((registration) => registration.eventId === event.id)
-      .reduce((sum, registration) => sum + (Number(registration.seats) || 0), 0)
+    const seatsBooked = getEventSeatsBooked(registrations, {
+      eventId: event.id,
+      mandirId: getRecordMandirId(event),
+    })
 
     return {
       ...event,
@@ -101,19 +106,19 @@ router.post('/:eventId/register', authorizeAny(['manageEvents', 'accessDevoteePo
       throw badRequest('Family profile not found.')
     }
 
-    const duplicate = db.eventRegistrations.find(
-      (registration) =>
-        registration.eventId === event.id &&
-        registration.familyId === familyId &&
-        getRecordMandirId(registration) === mandirId,
-    )
+    const duplicate = findEventRegistration(db.eventRegistrations, {
+      eventId: event.id,
+      familyId,
+      mandirId,
+    })
     if (duplicate) {
       throw badRequest('This family is already registered for the event.')
     }
 
-    const seatsBooked = db.eventRegistrations
-      .filter((registration) => registration.eventId === event.id && getRecordMandirId(registration) === mandirId)
-      .reduce((sum, registration) => sum + (Number(registration.seats) || 0), 0)
+    const seatsBooked = getEventSeatsBooked(db.eventRegistrations, {
+      eventId: event.id,
+      mandirId,
+    })
 
     if (seatsBooked + seats > event.capacity) {
       throw badRequest('Not enough seats available for this event.')
@@ -128,7 +133,9 @@ router.post('/:eventId/register', authorizeAny(['manageEvents', 'accessDevoteePo
       registeredAt: new Date().toISOString(),
       checkedInAt: '',
       paymentStatus: event.feePerFamily > 0 ? 'Pending' : 'Not Required',
+      approvalStatus: event.feePerFamily > 0 ? 'Pending Payment' : 'Approved',
       transactionId: '',
+      registeredBy: req.user?.username || req.user?.fullName || 'staff_console',
     }, mandirId)
 
     let transaction = null

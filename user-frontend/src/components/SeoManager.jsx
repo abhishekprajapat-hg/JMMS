@@ -89,13 +89,13 @@ function upsertLink(rel, href) {
 
 function replaceStructuredDataScripts(schemas) {
   document.head
-    .querySelectorAll('script[data-jmms-seo="structured-data"]')
+    .querySelectorAll('script[data-punyanidhi-seo="structured-data"]')
     .forEach((script) => script.remove())
 
   schemas.forEach((schema) => {
     const script = document.createElement('script')
     script.type = 'application/ld+json'
-    script.dataset.jmmsSeo = 'structured-data'
+    script.dataset.punyanidhiSeo = 'structured-data'
     script.text = JSON.stringify(schema)
     document.head.appendChild(script)
   })

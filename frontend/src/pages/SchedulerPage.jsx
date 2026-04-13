@@ -11,22 +11,49 @@ export function SchedulerPage({
   formatDate,
   familyLookup,
 }) {
+  function getBookingDateLabel(booking) {
+    const startDate = booking.startDate || booking.date
+    const endDate = booking.endDate || booking.date || startDate
+    if (!startDate && !endDate) return '-'
+    if (startDate === endDate) return formatDate(startDate)
+    return `${formatDate(startDate)} - ${formatDate(endDate)}`
+  }
+
   return (
     <section className="panel-grid two-column">
       <article className="panel">
         <div className="panel-head">
           <h2>Tithi & Pooja Scheduler</h2>
-          <p>Main Kalash slot conflict prevention enabled.</p>
+          <p>Slot conflict prevention for overlapping date ranges is enabled.</p>
         </div>
 
         {permissions.manageSchedule ? (
           <form className="stack-form" onSubmit={handleBookingSubmit}>
             <label>
-              Date
+              Start Date
               <input
                 type="date"
-                value={bookingForm.date}
-                onChange={(event) => setBookingForm((current) => ({ ...current, date: event.target.value }))}
+                value={bookingForm.startDate}
+                onChange={(event) =>
+                  setBookingForm((current) => {
+                    const nextStartDate = event.target.value
+                    const nextEndDate = current.endDate && current.endDate < nextStartDate ? nextStartDate : current.endDate
+                    return {
+                      ...current,
+                      startDate: nextStartDate,
+                      endDate: nextEndDate,
+                    }
+                  })
+                }
+              />
+            </label>
+            <label>
+              End Date
+              <input
+                type="date"
+                min={bookingForm.startDate}
+                value={bookingForm.endDate}
+                onChange={(event) => setBookingForm((current) => ({ ...current, endDate: event.target.value }))}
               />
             </label>
             <label>
@@ -84,7 +111,7 @@ export function SchedulerPage({
             <thead>
               <tr>
                 <th>Booking ID</th>
-                <th>Date</th>
+                <th>Date Range</th>
                 <th>Slot</th>
                 <th>Family</th>
                 <th>Notes</th>
@@ -94,7 +121,7 @@ export function SchedulerPage({
               {poojaBookings.map((booking) => (
                 <tr key={booking.id} className={booking.overridden ? 'row-alert' : ''}>
                   <td>{booking.id}</td>
-                  <td>{formatDate(booking.date)}</td>
+                  <td>{getBookingDateLabel(booking)}</td>
                   <td>{booking.slot}</td>
                   <td>{familyLookup[booking.familyId]?.headName || booking.familyId}</td>
                   <td>{booking.overridden ? `Override: ${booking.notes || 'No note'}` : booking.notes || '-'}</td>

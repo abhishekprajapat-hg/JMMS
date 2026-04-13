@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { apiRequest } from '../api'
 import { PortalContext } from './portalContextCore'
 
-const USER_TOKEN_KEY = 'jmms_devotee_token'
+const USER_TOKEN_KEY = 'punyanidhi_devotee_token'
 const NOTICE_AUTO_DISMISS_MS = 4500
 
 function normalizeUserPayload(payload) {

@@ -7,10 +7,10 @@ const assert = require('node:assert/strict')
 const receiptTrustModulePath = require.resolve('../src/services/receiptTrustService')
 
 test('ensureReceiptMetadata reads the latest receipt base URL from backend env file', async () => {
-  const runtimeEnvDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmms-receipt-runtime-'))
+  const runtimeEnvDir = fs.mkdtempSync(path.join(os.tmpdir(), 'punyanidhi-receipt-runtime-'))
   const runtimeEnvPath = path.join(runtimeEnvDir, '.env')
-  const originalRuntimeEnvPath = process.env.JMMS_RUNTIME_ENV_PATH
-  process.env.JMMS_RUNTIME_ENV_PATH = runtimeEnvPath
+  const originalRuntimeEnvPath = process.env.PUNYANIDHI_RUNTIME_ENV_PATH
+  process.env.PUNYANIDHI_RUNTIME_ENV_PATH = runtimeEnvPath
 
   fs.writeFileSync(runtimeEnvPath, 'RECEIPT_PUBLIC_BASE_URL=https://first.example\n', 'utf8')
   delete require.cache[receiptTrustModulePath]
@@ -43,9 +43,9 @@ test('ensureReceiptMetadata reads the latest receipt base URL from backend env f
   } finally {
     fs.rmSync(runtimeEnvDir, { recursive: true, force: true })
     if (originalRuntimeEnvPath === undefined) {
-      delete process.env.JMMS_RUNTIME_ENV_PATH
+      delete process.env.PUNYANIDHI_RUNTIME_ENV_PATH
     } else {
-      process.env.JMMS_RUNTIME_ENV_PATH = originalRuntimeEnvPath
+      process.env.PUNYANIDHI_RUNTIME_ENV_PATH = originalRuntimeEnvPath
     }
     delete require.cache[receiptTrustModulePath]
   }

@@ -15,6 +15,14 @@ export function DashboardPage({
   formatDate,
   formatCurrency,
 }) {
+  function getBookingDateLabel(booking) {
+    const startDate = booking.startDate || booking.date
+    const endDate = booking.endDate || booking.date || startDate
+    if (!startDate && !endDate) return '-'
+    if (startDate === endDate) return formatDate(startDate)
+    return `${formatDate(startDate)} - ${formatDate(endDate)}`
+  }
+
   return (
     <section className="make-dashboard-content">
       <header className="make-dashboard-head">
@@ -97,7 +105,7 @@ export function DashboardPage({
                 <div key={booking.id} className="make-donation-item">
                   <div>
                     <strong>{booking.slot}</strong>
-                    <span>{formatDate(booking.date)}</span>
+                    <span>{getBookingDateLabel(booking)}</span>
                   </div>
                   <div>
                     <strong>{familyLookup[booking.familyId]?.headName || booking.familyId}</strong>
