@@ -5,6 +5,35 @@ function normalizePath(path) {
   return path.startsWith('/') ? path : `/${path}`
 }
 
+function normalizeErrorMessage(message) {
+  return String(message || '').replace(/\s+/g, ' ').trim()
+}
+
+function isLikelyHtmlErrorMessage(message) {
+  const value = String(message || '')
+  if (!value) return false
+  return /<!doctype html/i.test(value) || /<\/?[a-z][\s\S]*>/i.test(value)
+}
+
+function getStatusFallbackMessage(status) {
+  if (status === 401) return 'Session expired. Please login again.'
+  if (status === 403) return 'You do not have permission to perform this action.'
+  if (status === 404) return 'Requested resource was not found.'
+  if (status >= 500) return `Service is temporarily unavailable (${status}). Please try again.`
+  return `Request failed with status ${status}`
+}
+
+function getErrorMessage(response, payload) {
+  const rawMessage = payload?.error || payload?.message
+  const normalizedMessage = normalizeErrorMessage(rawMessage)
+
+  if (normalizedMessage && !isLikelyHtmlErrorMessage(normalizedMessage)) {
+    return normalizedMessage
+  }
+
+  return getStatusFallbackMessage(response.status)
+}
+
 async function parsePayload(response) {
   const contentType = response.headers.get('content-type') || ''
   if (contentType.includes('application/json')) {
@@ -30,7 +59,7 @@ async function apiRequest(path, { token = '', method = 'GET', body } = {}) {
 
   const payload = await parsePayload(response)
   if (!response.ok) {
-    throw new Error(payload.error || payload.message || `Request failed with status ${response.status}`)
+    throw new Error(getErrorMessage(response, payload))
   }
   return payload
 }
